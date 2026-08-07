@@ -80,6 +80,7 @@ void Graph_StartFrame();
 void Graph_ProcessGfxCommands(Gfx* commands);
 void Graph_ProcessFrame(void (*run_one_game_iter)(void));
 void OTRLogString(const char* src);
+void SwitchTouchDebugLog(const char* src);
 void OTRGfxPrint(const char* str, void* printer, void (*printImpl)(void*, char));
 void OTRGetPixelDepthPrepare(float x, float y);
 uint16_t OTRGetPixelDepth(float x, float y);

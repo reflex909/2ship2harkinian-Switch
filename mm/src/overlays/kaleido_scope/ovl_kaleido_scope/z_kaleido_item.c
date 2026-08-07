@@ -9,7 +9,13 @@
 
 #include "2s2h/BenGui/HudEditor.h"
 #include "2s2h/GameInteractor/GameInteractor.h"
+#include "2s2h/BenPort.h"
 #include <libultraship/bridge/consolevariablebridge.h>
+#include <stdio.h>
+
+#ifdef __SWITCH__
+#include <switch.h>
+#endif
 
 s16 sEquipState = EQUIP_STATE_MAGIC_ARROW_GROW_ORB;
 
@@ -400,6 +406,68 @@ void KaleidoScope_UpdateItemCursor(PlayState* play) {
 
     pauseCtx->cursorColorSet = PAUSE_CURSOR_COLOR_SET_WHITE;
     pauseCtx->nameColorSet = PAUSE_NAME_COLOR_SET_WHITE;
+
+#ifdef __SWITCH__
+    if ((pauseCtx->state == PAUSE_STATE_MAIN) && (pauseCtx->mainState == PAUSE_MAIN_STATE_IDLE) &&
+        (pauseCtx->pageIndex == PAUSE_ITEM) && !pauseCtx->itemDescriptionOn) {
+        static bool sWasTouching = false;
+        HidTouchScreenState touchState = {0};
+
+        if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
+            if (!sWasTouching) {
+                sWasTouching = true;
+
+                s32 touchX = (s32)touchState.touches[0].x;
+                s32 touchY = (s32)touchState.touches[0].y;
+
+                s32 col = (s32)((touchX - 390) / 100.4f + 0.5f);
+                s32 row = (s32)((touchY - 236) / 94.0f + 0.5f);
+
+                if (col < 0) col = 0;
+                if (col >= ITEM_GRID_COLS) col = ITEM_GRID_COLS - 1;
+                if (row < 0) row = 0;
+                if (row >= ITEM_GRID_ROWS) row = ITEM_GRID_ROWS - 1;
+
+                s32 newPoint = col + (row * ITEM_GRID_COLS);
+                if (newPoint < ITEM_NUM_SLOTS) {
+                    u16 touchCursorItem;
+
+                    pauseCtx->cursorXIndex[PAUSE_ITEM] = col;
+                    pauseCtx->cursorYIndex[PAUSE_ITEM] = row;
+                    pauseCtx->cursorPoint[PAUSE_ITEM] = newPoint;
+                    pauseCtx->cursorSpecialPos = 0;
+                    pauseCtx->cursorShrinkRate = 4.0f;
+
+                    touchCursorItem = gSaveContext.save.saveInfo.inventory.items[newPoint];
+
+                    if (touchCursorItem == ITEM_NONE) {
+                        touchCursorItem = PAUSE_ITEM_NONE;
+                        pauseCtx->cursorColorSet = PAUSE_CURSOR_COLOR_SET_WHITE;
+                    } else {
+                        pauseCtx->cursorColorSet = PAUSE_CURSOR_COLOR_SET_YELLOW;
+                    }
+
+                    pauseCtx->cursorItem[PAUSE_ITEM] = touchCursorItem;
+                    pauseCtx->cursorSlot[PAUSE_ITEM] = newPoint;
+
+                    if ((touchCursorItem != (u16)PAUSE_ITEM_NONE) && (msgCtx->msgLength == 0)) {
+                        if (gSaveContext.buttonStatus[EQUIP_SLOT_A] == BTN_DISABLED) {
+                            gSaveContext.buttonStatus[EQUIP_SLOT_A] = BTN_ENABLED;
+                            gSaveContext.hudVisibility = HUD_VISIBILITY_IDLE;
+                            Interface_SetHudVisibility(HUD_VISIBILITY_ALL);
+                        }
+                    } else if (gSaveContext.buttonStatus[EQUIP_SLOT_A] != BTN_DISABLED) {
+                        gSaveContext.buttonStatus[EQUIP_SLOT_A] = BTN_DISABLED;
+                        gSaveContext.hudVisibility = HUD_VISIBILITY_IDLE;
+                        Interface_SetHudVisibility(HUD_VISIBILITY_ALL);
+                    }
+                }
+            }
+        } else {
+            sWasTouching = false;
+        }
+    }
+#endif
 
     if ((pauseCtx->state == PAUSE_STATE_MAIN) && (pauseCtx->mainState == PAUSE_MAIN_STATE_IDLE) &&
         (pauseCtx->pageIndex == PAUSE_ITEM) && !pauseCtx->itemDescriptionOn) {

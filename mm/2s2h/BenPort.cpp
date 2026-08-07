@@ -38,6 +38,11 @@
 
 #ifdef __SWITCH__
 #include <ship/port/switch/SwitchImpl.h>
+#include <switch/services/hid.h>
+
+extern "C" void SwitchTouchDebugLog(const char* src) {
+    SPDLOG_INFO("{}", src);
+}
 #endif
 
 #if not defined (__SWITCH__) && not defined(__WIIU__)
