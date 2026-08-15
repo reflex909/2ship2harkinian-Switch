@@ -325,6 +325,25 @@ void LoadAvailableWindows() {
         },
     });
 
+    // Ordered by the inventory slot each one shares, so the rows line up with the three trade slots
+    // the Inventory group shows.
+    itemTrackerGroupsAvailable.push_back(TrackerGroup{
+        .name = "Trade Items",
+        .columns = 5,
+        .scale = 1.0f,
+        .items = {
+            { TRACKER_ITEM_RANDO, RI_MOONS_TEAR },
+            { TRACKER_ITEM_RANDO, RI_DEED_LAND },
+            { TRACKER_ITEM_RANDO, RI_DEED_SWAMP },
+            { TRACKER_ITEM_RANDO, RI_DEED_MOUNTAIN },
+            { TRACKER_ITEM_RANDO, RI_DEED_OCEAN },
+            { TRACKER_ITEM_RANDO, RI_ROOM_KEY },
+            { TRACKER_ITEM_RANDO, RI_LETTER_TO_MAMA },
+            { TRACKER_ITEM_RANDO, RI_LETTER_TO_KAFEI },
+            { TRACKER_ITEM_RANDO, RI_PENDANT_OF_MEMORIES },
+        },
+    });
+
     itemTrackerGroupsAvailable.push_back(TrackerGroup{
         .name = "Tokens",
         .columns = 2,
@@ -471,12 +490,12 @@ void SaveItemTrackerLayout() {
         });
         itemTrackerLayout.push_back(groupJson);
     }
-    Ship::Context::GetInstance()->GetConfig()->SetBlock("CVars.ItemTrackerLayout", itemTrackerLayout);
-    Ship::Context::GetInstance()->GetConfig()->Save();
+    Ship::Context::GetRawInstance()->GetConfig()->SetBlock("CVars.ItemTrackerLayout", itemTrackerLayout);
+    Ship::Context::GetRawInstance()->GetConfig()->Save();
 }
 
 void LoadItemTrackerConfig() {
-    auto allConfig = Ship::Context::GetInstance()->GetConfig()->GetNestedJson();
+    auto allConfig = Ship::Context::GetRawInstance()->GetConfig()->GetNestedJson();
 
     // Verify that the config has CVars.ItemTrackerLayout and its an array
     if (allConfig.find("CVars") != allConfig.end() && allConfig["CVars"].is_object() &&

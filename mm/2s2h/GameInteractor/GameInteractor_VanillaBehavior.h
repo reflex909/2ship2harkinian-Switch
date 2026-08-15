@@ -122,6 +122,22 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `*Actor` (ObjComb)
+    VB_BEEHIVE_ALREADY_BROKEN,
+
+    // #### `result`
+    // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `*Actor` (ObjComb)
+    VB_BEEHIVE_SPAWN_ACTOR,
+
+    // #### `result`
+    // ```c
     // false
     // ```
     // #### `args`
@@ -315,8 +331,24 @@ typedef enum {
     // true
     // ```
     // #### `args`
+    // - None
+    VB_CONSUME_EPONA_CARROT,
+
+    // #### `result`
+    // ```c
+    // true
+    // ```
+    // #### `args`
     // - `*EnGinkoMan`
     VB_CONTINUE_BANKER_DIALOGUE,
+
+    // #### `result`
+    // ```c
+    // (bean->unk_1E4 == 2) || (bean->unk_1E4 == 1)
+    // ```
+    // #### `args`
+    // - `ObjBean*`
+    VB_COUNT_BURROWED_BUGS,
 
     // #### `result`
     // ```c
@@ -516,6 +548,14 @@ typedef enum {
     // #### `args`
     // - `s16` (file index)
     VB_DRAW_FILE_SELECT_SMALL_EXTRA_INFO_BOX,
+
+    // #### `result`
+    // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `*FileSelectState`
+    VB_FILE_SELECT_ROTATE_TO_NAME_ENTRY,
 
     // #### `result`
     // ```c
@@ -723,6 +763,24 @@ typedef enum {
     // #### `args`
     // - None
     VB_EN_FSN_HAS_ITEMS,
+
+    // #### `result`
+    // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `*EnGs`
+    // - `*PlayState`
+    VB_EN_GS_BEFORE_GOSSIP_GROTTO_SEQUENCE,
+
+    // #### `result`
+    // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `*EnGs`
+    // - `*PlayState`
+    VB_EN_GS_FINISH_OCARINA_ON_RESET,
 
     // #### `result`
     // ```c
@@ -977,6 +1035,14 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `ObjDora*`
+    VB_GONG_DROP_COLLECTIBLE,
+
+    // #### `result`
+    // ```c
     // phi_f0 > 0.0f
     // ```
     // #### `args`
@@ -1171,6 +1237,22 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // bubble != NULL
+    // ```
+    // #### `args`
+    // - `*Player`
+    VB_DEKU_COMMON_HEAD_OVERRIDE_HELD_ACTOR,
+
+    // #### `result`
+    // ```c
+    // player->heldActor != NULL
+    // ```
+    // #### `args`
+    // - `*Actor` (player->heldActor)
+    VB_DEKU_COMMON_UPPER_LIMB_OVERRIDE_HELD_ACTOR,
+
+    // #### `result`
+    // ```c
     // true
     // ```
     // #### `args`
@@ -1258,6 +1340,23 @@ typedef enum {
 
     // #### `result`
     // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `*EnKusa2`
+    // - `s32` (index within the patch)
+    VB_KEATON_GRASS_ATTACH_CHILD,
+
+    // #### `result`
+    // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `*EnKusa2`
+    VB_KEATON_GRASS_DRAW,
+
+    // #### `result`
+    // ```c
     // CHECK_WEEKEVENTREG(WEEKEVENTREG_08_80)
     // ```
     // #### `args`
@@ -1286,7 +1385,15 @@ typedef enum {
     // ```
     // #### `args`
     // - `*EnKusa`
-    VB_KUSA_BUSH_DRAW_BE_OVERRIDDEN,
+    VB_KUSA_DRAW_BE_OVERRIDDEN,
+
+    // #### `result`
+    // ```c
+    // play->actorCtx.actorLists[ACTORCAT_EXPLOSIVES].length >= 3
+    // ```
+    // #### `args`
+    // - None
+    VB_LIMIT_EXPLOSIVES,
 
     // #### `result`
     // ```c
@@ -1361,6 +1468,14 @@ typedef enum {
     // #### `args`
     // - `*EnMnk`
     VB_MONKEY_WAIT_TO_TALK_AFTER_APPROACH,
+
+    // #### `result`
+    // ```c
+    // CHECK_BTN_ALL(controller->press.button, BTN_A) || ...
+    // ```
+    // #### `args`
+    // - None
+    VB_MSG_ADVANCE,
 
     // #### `result`
     // ```c
@@ -1631,6 +1746,48 @@ typedef enum {
     // - `*ColliderElement atElem` (unused)
     // - `*ColliderElement acElem`
     VB_PERFORM_AC_COLLISION,
+
+    // #### `result`
+    // ```c
+    // play->actorCtx.flags & ACTORCTX_FLAG_PICTO_BOX_ON
+    // ```
+    // #### `args`
+    // - None
+    VB_PICTO_ACTIVATE,
+
+    // #### `result`
+    // ```c
+    // true
+    // ```
+    // #### `args`
+    // - None
+    VB_PICTO_DISPLAY,
+
+    // #### `result`
+    // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `*PreRender` (prerender)
+    VB_PICTO_TAKE,
+
+    // #### `result`
+    // ```c
+    // i < ARRAY_COUNT(D_8085D798)
+    // ```
+    // #### `args`
+    // - `*Player`
+    // - `*Actor` (interactRangeActor)
+    // - `ItemId`
+    // - `PlayerItemAction`
+    VB_PLAY_BOTTLE_CATCH_TEXT,
+
+    // !Play_InCsMode(play) && (play->roomCtx.curRoom.num == 2)
+    // ```
+    // #### `args`
+    // - `*EnTest3` (Kafei)
+    // - `*s32` (cutscene phase)
+    VB_PLAY_COUPLES_MASK_CS,
 
     // #### `result`
     // ```c
@@ -2298,6 +2455,23 @@ typedef enum {
     // #### `args`
     // - `*ObjYasi`
     VB_TREE_DROP_COLLECTIBLE,
+
+    // #### `result`
+    // ```c
+    // btn <= EQUIP_SLOT_NONE
+    // ```
+    // #### `args`
+    // - `*Player`
+    // - `*s32` (button)
+    VB_UNEQUIP_MASK_NOT_ON_BUTTON,
+
+    // #### `result`
+    // ```c
+    // true
+    // ```
+    // #### `args`
+    // - `Player*`
+    VB_USE_BOTTLE_ITEM,
 
     // #### `result`
     // ```c
