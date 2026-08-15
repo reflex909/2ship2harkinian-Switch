@@ -8,6 +8,7 @@
 #include "interface/parameter_static/parameter_static.h"
 #include "z64save.h"
 #include "BenPort.h"
+#include <switch.h>
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "assets/archives/schedule_dma_static/schedule_dma_static_yar.h"
 #include "assets/archives/icon_item_static/icon_item_static_yar.h"
@@ -288,9 +289,46 @@ void Message_ResetOcarinaButtonState(PlayState* play) {
     sOcarinaButtonCEnvB = 10;
 }
 
+#ifdef __SWITCH__
+bool Message_ItemDescriptionTouchTapped(PlayState* play) {
+    static bool sMsgWasTouching = false;
+    static bool sMsgSeenReleaseSinceOpen = false;
+    static bool sMsgWasDescriptionOn = false;
+    PauseContext* msgPauseCtx = &play->pauseCtx;
+    HidTouchScreenState msgTouchState = {0};
+    bool msgTouchTapped = false;
+    bool msgIsTouching = (hidGetTouchScreenStates(&msgTouchState, 1) > 0 && msgTouchState.count > 0);
+
+    if (msgPauseCtx->itemDescriptionOn && !sMsgWasDescriptionOn) {
+        // Description just opened - require a release before accepting a tap
+        sMsgSeenReleaseSinceOpen = false;
+    }
+    sMsgWasDescriptionOn = msgPauseCtx->itemDescriptionOn;
+
+    if (msgIsTouching) {
+        if (!sMsgWasTouching && sMsgSeenReleaseSinceOpen) {
+            msgTouchTapped = true;
+        }
+        sMsgWasTouching = true;
+    } else {
+        sMsgWasTouching = false;
+        sMsgSeenReleaseSinceOpen = true;
+    }
+
+    return msgTouchTapped && msgPauseCtx->itemDescriptionOn;
+}
+#endif
+
 bool Message_ShouldAdvance(PlayState* play) {
     MessageContext* msgCtx = &play->msgCtx;
     Input* controller = CONTROLLER1(&play->state);
+
+#ifdef __SWITCH__
+    if (Message_ItemDescriptionTouchTapped(play)) {
+        Audio_PlaySfx(NA_SE_SY_MESSAGE_PASS);
+        return true;
+    }
+#endif
 
     if ((msgCtx->textboxEndType == TEXTBOX_ENDTYPE_TWO_CHOICE) ||
         (msgCtx->textboxEndType == TEXTBOX_ENDTYPE_THREE_CHOICE)) {
@@ -5927,9 +5965,14 @@ void Message_Update(PlayState* play) {
                         //! FAKE: debug?
                         if (msgCtx->textboxEndType == TEXTBOX_ENDTYPE_FADE_NORMAL) {}
                     } else if (pauseCtx->itemDescriptionOn) {
+#ifdef __SWITCH__
+                        bool msgTouchAdvanced = Message_ItemDescriptionTouchTapped(play);
+#else
+                        bool msgTouchAdvanced = false;
+#endif
                         if ((input->rel.stick_x != 0) || (input->rel.stick_y != 0) ||
                             CHECK_BTN_ALL(input->press.button, BTN_A) || CHECK_BTN_ALL(input->press.button, BTN_B) ||
-                            CHECK_BTN_ALL(input->press.button, BTN_START)) {
+                            CHECK_BTN_ALL(input->press.button, BTN_START) || msgTouchAdvanced) {
                             Audio_PlaySfx(NA_SE_SY_DECIDE);
                             Message_CloseTextbox(play);
                         }

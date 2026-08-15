@@ -5,6 +5,9 @@
  */
 
 #include "z_kaleido_scope.h"
+#include <switch.h>
+#include "2s2h/BenPort.h"
+#include <stdio.h>
 #include "interface/parameter_static/parameter_static.h"
 #include "archives/icon_item_static/icon_item_static_yar.h"
 
@@ -569,6 +572,81 @@ typedef struct {
     /* 0x6 */ s16 right;
 } CursorPointDirection; // size = 0x8
 
+
+/**
+ * Computes the cursorItem value for a given Quest Status cursor point,
+ * mirroring the logic in KaleidoScope_UpdateQuestCursor's cursor-item derivation.
+ * Used by touch input to determine what item (if any) occupies a tapped quest slot.
+ */
+u16 KaleidoScope_ComputeQuestCursorItem(PlayState* play, s16 cursorPoint) {
+    u16 cursorItem;
+
+    if (cursorPoint != QUEST_HEART_PIECE) {
+        if (cursorPoint <= QUEST_REMAINS_TWINMOLD) {
+            // Boss Remains
+            if (CHECK_QUEST_ITEM(cursorPoint)) {
+                cursorItem = ITEM_REMAINS_ODOLWA + cursorPoint;
+            } else {
+                cursorItem = PAUSE_ITEM_NONE;
+            }
+        } else if (cursorPoint == QUEST_BOMBERS_NOTEBOOK) {
+            // Bombers Notebook
+            if (CHECK_QUEST_ITEM(cursorPoint)) {
+                cursorItem = ITEM_BOMBERS_NOTEBOOK;
+            } else {
+                cursorItem = PAUSE_ITEM_NONE;
+            }
+        } else if (cursorPoint == QUEST_SHIELD) {
+            // Shield
+            if (GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SHIELD) != EQUIP_VALUE_SHIELD_NONE) {
+                cursorItem = (ITEM_SHIELD_HERO - EQUIP_TYPE_SHIELD) + GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SHIELD);
+            } else {
+                cursorItem = PAUSE_ITEM_NONE;
+            }
+        } else if (cursorPoint == QUEST_SWORD) {
+            // Sword
+            if (GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SWORD) != EQUIP_VALUE_SWORD_NONE) {
+                cursorItem = (ITEM_SWORD_KOKIRI - EQUIP_VALUE_SWORD_KOKIRI) + GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SWORD);
+            } else {
+                cursorItem = PAUSE_ITEM_NONE;
+            }
+        } else if (cursorPoint <= QUEST_SONG_SUN) {
+            // Songs
+            if (CHECK_QUEST_ITEM(cursorPoint)) {
+                cursorItem = ITEM_WALLET_GIANT + cursorPoint;
+            } else if ((cursorPoint == QUEST_SONG_LULLABY) && CHECK_QUEST_ITEM(QUEST_SONG_LULLABY_INTRO)) {
+                cursorItem = ITEM_SONG_LULLABY_INTRO;
+            } else {
+                cursorItem = PAUSE_ITEM_NONE;
+            }
+        } else if (cursorPoint == QUEST_QUIVER) {
+            // Quiver Upgrade
+            if (GET_CUR_UPG_VALUE(UPG_QUIVER) != 0) {
+                cursorItem = (ITEM_QUIVER_30 - 1) + GET_CUR_UPG_VALUE(UPG_QUIVER);
+            } else {
+                cursorItem = PAUSE_ITEM_NONE;
+            }
+        } else if (cursorPoint == QUEST_BOMB_BAG) {
+            // Bomb Bag Upgrade
+            if (GET_CUR_UPG_VALUE(UPG_BOMB_BAG) != 0) {
+                cursorItem = (ITEM_BOMB_BAG_20 - 1) + GET_CUR_UPG_VALUE(UPG_BOMB_BAG);
+            } else {
+                cursorItem = PAUSE_ITEM_NONE;
+            }
+        } else {
+            cursorItem = PAUSE_ITEM_NONE;
+        }
+    } else {
+        // Heart Piece Count
+        if ((GET_SAVE_INVENTORY_QUEST_ITEMS >> QUEST_HEART_PIECE_COUNT) != 0) {
+            cursorItem = ITEM_HEART_CONTAINER;
+        } else {
+            cursorItem = PAUSE_ITEM_NONE;
+        }
+    }
+
+    return cursorItem;
+}
 void KaleidoScope_UpdateQuestCursor(PlayState* play) {
     static s16 sQuestSongPlaybackDelayTimer = 0;
     static CursorPointDirection sCursorPointLinks[] = {
@@ -608,6 +686,173 @@ void KaleidoScope_UpdateQuestCursor(PlayState* play) {
 
     pauseCtx->nameColorSet = PAUSE_NAME_COLOR_SET_WHITE;
     pauseCtx->cursorColorSet = PAUSE_CURSOR_COLOR_SET_WHITE;
+#ifdef __SWITCH__
+    if ((pauseCtx->state == PAUSE_STATE_MAIN) &&
+        (!pauseCtx->mainState || (pauseCtx->mainState == PAUSE_MAIN_STATE_SONG_PROMPT) ||
+         (pauseCtx->mainState == PAUSE_MAIN_STATE_IDLE_CURSOR_ON_SONG)) &&
+        (pauseCtx->pageIndex == PAUSE_QUEST) && !pauseCtx->itemDescriptionOn) {
+        static bool sQuestWasTouching = false;
+
+        static const s16 sQTouchLeft[] = {
+            45, 78, 10, 45, 80, 11, -109, -87, -65, -41, -19, -18,
+            -109, -87, -65, -41, -19, -18, -103, 7, 82, -110, -54
+        };
+        static const s16 sQTouchTop[] = {
+            62, 42, 42, 20, -9, -9, -20, -20, -20, -20, -20, -20,
+            2, 2, 2, 2, 2, 2, 54, -44, -44, 34, 58
+        };
+        static const s16 sQTouchWidth[] = {
+            32, 32, 32, 32, 32, 32, 16, 16, 16, 16, 16, 16,
+            16, 16, 16, 16, 16, 16, 32, 32, 32, 24, 48
+        };
+        static const s16 sQTouchHeight[] = {
+            32, 32, 32, 32, 32, 32, 24, 24, 24, 24, 24, 24,
+            24, 24, 24, 24, 24, 24, 32, 32, 32, 24, 48
+        };
+
+        HidTouchScreenState touchState = {0};
+
+        if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
+            if (!sQuestWasTouching) {
+                sQuestWasTouching = true;
+
+                s32 touchX = (s32)touchState.touches[0].x;
+                s32 touchY = (s32)touchState.touches[0].y;
+
+                f32 vx = -90.0f + (touchX - 390) * (32.0f / 100.4f);
+                f32 vy = 48.0f - (touchY - 236) * (32.0f / 94.0f);
+
+                char sQuestTouchDebugBuf[128];
+                snprintf(sQuestTouchDebugBuf, sizeof(sQuestTouchDebugBuf),
+                         "Quest touch: raw=(%d,%d) vx=%.1f vy=%.1f", touchX, touchY, vx, vy);
+                SwitchTouchDebugLog(sQuestTouchDebugBuf);
+
+                s32 hitPoint = -1;
+                s32 qi;
+                for (qi = 0; qi < 23; qi++) {
+                    if (qi == QUEST_SKULL_TOKEN) {
+                        continue;
+                    }
+                    f32 left = (f32)sQTouchLeft[qi];
+                    f32 right = left + (f32)sQTouchWidth[qi];
+                    f32 top = (f32)sQTouchTop[qi];
+                    f32 bottom = top - (f32)sQTouchHeight[qi];
+
+                    if ((vx >= left) && (vx <= right) && (vy <= top) && (vy >= bottom)) {
+                        hitPoint = qi;
+                        break;
+                    }
+                }
+
+                if (hitPoint >= 0) {
+                    bool sameAsSelected = (pauseCtx->cursorPoint[PAUSE_QUEST] == hitPoint) &&
+                                          (pauseCtx->cursorItem[PAUSE_QUEST] != PAUSE_ITEM_NONE);
+
+                    if (sameAsSelected && (hitPoint == QUEST_BOMBERS_NOTEBOOK)) {
+                        play->pauseCtx.bombersNotebookOpen = true;
+                        pauseCtx->mainState = PAUSE_MAIN_STATE_BOMBERS_NOTEBOOK_OPEN;
+                        Audio_PlaySfx(NA_SE_SY_DECIDE);
+                    } else if ((hitPoint >= QUEST_SONG_SONATA) && (hitPoint <= QUEST_SONG_SUN) &&
+                               (CHECK_QUEST_ITEM(hitPoint) ||
+                                ((hitPoint == QUEST_SONG_LULLABY) && !CHECK_QUEST_ITEM(hitPoint) &&
+                                 CHECK_QUEST_ITEM(QUEST_SONG_LULLABY_INTRO))) &&
+                               (msgCtx->msgLength == 0)) {
+                        if (sameAsSelected && (pauseCtx->mainState == PAUSE_MAIN_STATE_IDLE_CURSOR_ON_SONG)) {
+                            pauseCtx->mainState = PAUSE_MAIN_STATE_SONG_PLAYBACK_INIT;
+                            sQuestSongPlaybackDelayTimer = 10;
+                        } else {
+                            s32 songCursor;
+                            s32 ocarinaBtnIdx;
+
+                            if (CHECK_QUEST_ITEM(hitPoint)) {
+                                songCursor = hitPoint;
+                            } else {
+                                songCursor = QUEST_BOMB_BAG;
+                            }
+
+                            pauseCtx->cursorPoint[PAUSE_QUEST] = hitPoint;
+                            pauseCtx->cursorSlot[PAUSE_QUEST] = hitPoint;
+                            pauseCtx->cursorItem[PAUSE_QUEST] = KaleidoScope_ComputeQuestCursorItem(play, (s16)hitPoint);
+                            pauseCtx->cursorSpecialPos = 0;
+                            pauseCtx->cursorShrinkRate = 4.0f;
+
+                            pauseCtx->ocarinaSongIndex = gOcarinaSongItemMap[songCursor - QUEST_SONG_SONATA];
+                            sQuestSongPlaybackDelayTimer = 10;
+
+                            for (ocarinaBtnIdx = 0; ocarinaBtnIdx < 8; ocarinaBtnIdx++) {
+                                sQuestSongPlayedOcarinaButtons[ocarinaBtnIdx] = OCARINA_BTN_INVALID;
+                                sQuestSongPlayedOcarinaButtonsAlpha[ocarinaBtnIdx] = 0;
+                            }
+                            sQuestSongPlayedOcarinaButtonsNum = 0;
+
+                            AudioOcarina_SetInstrument(OCARINA_INSTRUMENT_DEFAULT);
+                            AudioOcarina_StartDefault((1 << pauseCtx->ocarinaSongIndex) | 0x80000000);
+
+                            pauseCtx->ocarinaStaff = AudioOcarina_GetPlaybackStaff();
+                            pauseCtx->ocarinaStaff->pos = 0;
+                            pauseCtx->ocarinaStaff->state = 0xFF;
+
+                            pauseCtx->ocarinaButtonsY[OCARINA_BTN_A] = -62;
+                            pauseCtx->ocarinaButtonsY[OCARINA_BTN_C_DOWN] = -56;
+                            pauseCtx->ocarinaButtonsY[OCARINA_BTN_C_RIGHT] = -49;
+                            pauseCtx->ocarinaButtonsY[OCARINA_BTN_C_LEFT] = -46;
+                            pauseCtx->ocarinaButtonsY[OCARINA_BTN_C_UP] = -41;
+
+                            pauseCtx->mainState = PAUSE_MAIN_STATE_IDLE_CURSOR_ON_SONG;
+
+                            if (interfaceCtx->aButtonDoActionDelayed != DO_ACTION_DECIDE) {
+                                Interface_SetAButtonDoAction(play, DO_ACTION_DECIDE);
+                            }
+                            AudioOcarina_SetInstrument(OCARINA_INSTRUMENT_OFF);
+
+                            if (gSaveContext.buttonStatus[EQUIP_SLOT_A] == BTN_DISABLED) {
+                                gSaveContext.buttonStatus[EQUIP_SLOT_A] = BTN_ENABLED;
+                                gSaveContext.hudVisibility = HUD_VISIBILITY_IDLE;
+                                Interface_SetHudVisibility(HUD_VISIBILITY_ALL);
+                            }
+                        }
+                    } else {
+                        u16 hitItem = KaleidoScope_ComputeQuestCursorItem(play, (s16)hitPoint);
+
+                        if (pauseCtx->mainState == PAUSE_MAIN_STATE_IDLE_CURSOR_ON_SONG) {
+                            AudioOcarina_SetInstrument(OCARINA_INSTRUMENT_OFF);
+                            pauseCtx->mainState = PAUSE_MAIN_STATE_IDLE;
+                        }
+
+                        pauseCtx->cursorPoint[PAUSE_QUEST] = hitPoint;
+                        pauseCtx->cursorItem[PAUSE_QUEST] = hitItem;
+                        pauseCtx->cursorSlot[PAUSE_QUEST] = hitPoint;
+                        pauseCtx->cursorSpecialPos = 0;
+                        pauseCtx->cursorShrinkRate = 4.0f;
+
+                        if (hitItem != PAUSE_ITEM_NONE) {
+                            if (gSaveContext.buttonStatus[EQUIP_SLOT_A] == BTN_DISABLED) {
+                                gSaveContext.buttonStatus[EQUIP_SLOT_A] = BTN_ENABLED;
+                                gSaveContext.hudVisibility = HUD_VISIBILITY_IDLE;
+                                Interface_SetHudVisibility(HUD_VISIBILITY_ALL);
+                            }
+
+                            if ((msgCtx->msgLength == 0) && (hitPoint != QUEST_BOMBERS_NOTEBOOK)) {
+                                pauseCtx->itemDescriptionOn = true;
+                                if (hitItem < ITEM_REMAINS_ODOLWA) {
+                                    func_801514B0(play, 0x1737 + hitItem, 1);
+                                } else {
+                                    func_801514B0(play, 0x173B + hitItem, 3);
+                                }
+                            }
+                        } else if (gSaveContext.buttonStatus[EQUIP_SLOT_A] != BTN_DISABLED) {
+                            gSaveContext.buttonStatus[EQUIP_SLOT_A] = BTN_DISABLED;
+                            gSaveContext.hudVisibility = HUD_VISIBILITY_IDLE;
+                            Interface_SetHudVisibility(HUD_VISIBILITY_ALL);
+                        }
+                    }
+                }
+            }
+        } else {
+            sQuestWasTouching = false;
+        }
+    }
+#endif
 
     // != PAUSE_MAIN_STATE_IDLE
     if ((pauseCtx->state == PAUSE_STATE_MAIN) &&

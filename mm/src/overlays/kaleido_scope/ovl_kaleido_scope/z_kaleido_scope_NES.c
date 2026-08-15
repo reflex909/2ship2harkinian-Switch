@@ -9,6 +9,7 @@
 #include "z64skybox.h"
 #include "z64view.h"
 #include "overlays/gamestates/ovl_opening/z_opening.h"
+#include <switch.h>
 
 #include "archives/icon_item_static/icon_item_static_yar.h"
 #include "interface/icon_item_gameover_static/icon_item_gameover_static.h"
@@ -523,6 +524,74 @@ void KaleidoScope_SwitchPage(PauseContext* pauseCtx, u8 direction) {
     Interface_SetHudVisibility(HUD_VISIBILITY_ALL);
 }
 
+
+/**
+ * Process touch swipe gesture to switch pages
+ */
+void KaleidoScope_HandlePageSwipe(PlayState* play, Input* input) {
+    PauseContext* pauseCtx = &play->pauseCtx;
+
+    if (gTouchDragInProgress) {
+        return;
+    }
+
+    if (pauseCtx->mainState != PAUSE_MAIN_STATE_IDLE &&
+        pauseCtx->mainState != PAUSE_MAIN_STATE_IDLE_CURSOR_ON_SONG) {
+        return;
+    }
+
+    if ((pauseCtx->debugEditor != DEBUG_EDITOR_NONE) || pauseCtx->itemDescriptionOn) {
+        return;
+    }
+
+#ifdef __SWITCH__
+    static bool sSwipeTouching = false;
+    static s32 sSwipeStartX = 0;
+    static s32 sSwipeStartY = 0;
+    static s32 sSwipeLastX = 0;
+    static s32 sSwipeLastY = 0;
+    static u32 sSwipeStartFrame = 0;
+
+    const s32 kSwipeMinDistX = 200;
+    const s32 kSwipeMaxDistY = 100;
+    const u32 kSwipeMaxFrames = 30;
+
+    HidTouchScreenState touchState = {0};
+    bool isTouching = (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0);
+
+    if (isTouching) {
+        s32 touchX = (s32)touchState.touches[0].x;
+        s32 touchY = (s32)touchState.touches[0].y;
+
+        if (!sSwipeTouching) {
+            sSwipeTouching = true;
+            sSwipeStartX = touchX;
+            sSwipeStartY = touchY;
+            sSwipeStartFrame = play->state.frames;
+        }
+
+        sSwipeLastX = touchX;
+        sSwipeLastY = touchY;
+    } else if (sSwipeTouching) {
+        sSwipeTouching = false;
+
+        s32 deltaX = sSwipeLastX - sSwipeStartX;
+        s32 deltaY = sSwipeLastY - sSwipeStartY;
+        s32 absDeltaX = (deltaX < 0) ? -deltaX : deltaX;
+        s32 absDeltaY = (deltaY < 0) ? -deltaY : deltaY;
+        u32 elapsedFrames = play->state.frames - sSwipeStartFrame;
+
+        if ((absDeltaX >= kSwipeMinDistX) && (absDeltaY <= kSwipeMaxDistY) &&
+            (elapsedFrames <= kSwipeMaxFrames)) {
+            if (deltaX < 0) {
+                KaleidoScope_SwitchPage(pauseCtx, SWITCH_PAGE_RIGHT);
+            } else {
+                KaleidoScope_SwitchPage(pauseCtx, SWITCH_PAGE_LEFT);
+            }
+        }
+    }
+#endif
+}
 /**
  * Process inputs to decide whether to switch pages
  */
@@ -4263,6 +4332,21 @@ void KaleidoScope_Update(PlayState* play) {
                 case PAUSE_MAP:
                     if (sInDungeonScene) {
                         KaleidoScope_UpdateDungeonCursor(play);
+                        // KaleidoScope_HandleDungeonMapTouch(play); // DISABLED.
+                        // Progress so far: root-caused the phantom floor-badge to an
+                        // unconditional texture draw in z_map_disp.c (~line 2059)
+                        // reading cursorMapDungeonItem with no validity gate. Fixed
+                        // for Boss Key/Compass/Map by gating on
+                        // cursorPoint[PAUSE_MAP] >= DUNGEON_FLOOR_INDEX_4 (see that
+                        // file). Still need to fix: (1) Stray Fairies - confirm the
+                        // updated gate covers it (last test was inconclusive whether
+                        // this new gate resolved it). (2) Floor selection via touch
+                        // doesn't update cursorMapDungeonItem / whatever else the
+                        // minimap room-filtering system needs, causing wrong rooms
+                        // to show on the right-side grid after tapping a floor then
+                        // moving the stick - needs its own investigation into how
+                        // KaleidoScope_UpdateDungeonCursor's stick-driven floor
+                        // navigation keeps the minimap in sync, to replicate in touch.
                     } else {
                         KaleidoScope_UpdateWorldMapCursor(play);
                     }
@@ -4281,6 +4365,7 @@ void KaleidoScope_Update(PlayState* play) {
                 ((pauseCtx->mainState == PAUSE_MAIN_STATE_IDLE) ||
                  (pauseCtx->mainState == PAUSE_MAIN_STATE_IDLE_CURSOR_ON_SONG))) {
                 KaleidoScope_HandlePageToggles(play, input);
+                KaleidoScope_HandlePageSwipe(play, input);
             }
         }
         if (pauseCtx->state == PAUSE_STATE_MAIN) {
@@ -4288,6 +4373,7 @@ void KaleidoScope_Update(PlayState* play) {
         }
     } else if (pauseCtx->state == PAUSE_STATE_OWL_WARP_SELECT) {
         KaleidoScope_UpdateWorldMapCursor(play);
+        KaleidoScope_HandleOwlWarpTouch(play);
         KaleidoScope_UpdateNamePanel(play);
     }
 

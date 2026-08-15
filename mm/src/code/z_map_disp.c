@@ -2053,12 +2053,20 @@ void MapDisp_DrawDungeonFloorSelect(PlayState* play) {
         gDPPipeSync(POLY_OPA_DISP++);
 
         // Draw currently selected storey
-        gDPSetPrimColor(POLY_OPA_DISP++, 0, 0, 150, 150, 255, pauseCtx->alpha);
-        gDPLoadTextureBlock(
-            POLY_OPA_DISP++,
-            MapDisp_GetDungeonMapFloorTexture((sMapDisp.bottomStorey - pauseCtx->cursorMapDungeonItem) + 8),
-            G_IM_FMT_IA, G_IM_SIZ_8b, 24, 16, 0, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK,
-            G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+        // NOTE: only draw this while the cursor is actually ON A FLOOR
+        // (cursorPoint >= DUNGEON_FLOOR_INDEX_4). cursorXIndex alone isn't
+        // enough to gate this - Stray Fairies also uses cursorXIndex 1 (same
+        // column as floors) but isn't a floor, and cursorMapDungeonItem holds
+        // a stale/item-column value in that case, producing a bogus
+        // floor-number texture.
+        if (pauseCtx->cursorPoint[PAUSE_MAP] >= DUNGEON_FLOOR_INDEX_4) {
+            gDPSetPrimColor(POLY_OPA_DISP++, 0, 0, 150, 150, 255, pauseCtx->alpha);
+            gDPLoadTextureBlock(
+                POLY_OPA_DISP++,
+                MapDisp_GetDungeonMapFloorTexture((sMapDisp.bottomStorey - pauseCtx->cursorMapDungeonItem) + 8),
+                G_IM_FMT_IA, G_IM_SIZ_8b, 24, 16, 0, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,
+                G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+        }
 
         texULX = 80;
         texLRX = 106;

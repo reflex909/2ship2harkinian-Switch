@@ -17,6 +17,8 @@
 #include <switch.h>
 #endif
 
+u8 gTouchDragInProgress = 0;
+
 s16 sEquipState = EQUIP_STATE_MAGIC_ARROW_GROW_ORB;
 
 // Timer to hold magic arrow icon over magic arrow slot before moving when equipping.
@@ -389,6 +391,99 @@ u8 sPlayerFormItems[PLAYER_FORM_MAX] = {
     ITEM_NONE,              // PLAYER_FORM_HUMAN
 };
 
+
+/**
+ * Checks whether it is safe to equip an item to the given C-button slot right now.
+ * Prevents unequipping a transformation mask while it is actively being worn,
+ * and prevents unequipping a non-transformation mask while it is actively being worn.
+ * Plays an error sound and returns false if the equip should be blocked.
+ */
+u8 KaleidoScope_CanEquipToCButton(PlayState* play, u8 targetCBtn) {
+    // Ensure that a transformation mask can not be unequipped while being used
+    if (GET_PLAYER_FORM != PLAYER_FORM_HUMAN) {
+        if (targetCBtn == PAUSE_EQUIP_C_LEFT) {
+            if (sPlayerFormItems[GET_PLAYER_FORM] == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_LEFT)) {
+                Audio_PlaySfx(NA_SE_SY_ERROR);
+                return false;
+            }
+        } else if (targetCBtn == PAUSE_EQUIP_C_DOWN) {
+            if (sPlayerFormItems[GET_PLAYER_FORM] == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_DOWN)) {
+                Audio_PlaySfx(NA_SE_SY_ERROR);
+                return false;
+            }
+        } else if (targetCBtn == PAUSE_EQUIP_C_RIGHT) {
+            if (sPlayerFormItems[GET_PLAYER_FORM] == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_RIGHT)) {
+                Audio_PlaySfx(NA_SE_SY_ERROR);
+                return false;
+            }
+        }
+    }
+
+    // Ensure that a non-transformation mask can not be unequipped while being used
+    if (targetCBtn == PAUSE_EQUIP_C_LEFT) {
+        if ((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
+            (Player_GetCurMaskItemId(play) == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_LEFT))) {
+            Audio_PlaySfx(NA_SE_SY_ERROR);
+            return false;
+        }
+    } else if (targetCBtn == PAUSE_EQUIP_C_DOWN) {
+        if ((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
+            (Player_GetCurMaskItemId(play) == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_DOWN))) {
+            Audio_PlaySfx(NA_SE_SY_ERROR);
+            return false;
+        }
+    } else if (targetCBtn == PAUSE_EQUIP_C_RIGHT) {
+        if ((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
+            (Player_GetCurMaskItemId(play) == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_RIGHT))) {
+            Audio_PlaySfx(NA_SE_SY_ERROR);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Triggers the item-equip animation/assignment sequence for the given item and slot,
+ * targeting whatever C-button is currently set in pauseCtx->equipTargetCBtn.
+ * Caller must set pauseCtx->equipTargetCBtn and confirm KaleidoScope_CanEquipToCButton()
+ * returned true before calling this.
+ */
+void KaleidoScope_TriggerItemEquip(PlayState* play, u16 cursorSlot, u16 cursorItem) {
+    PauseContext* pauseCtx = &play->pauseCtx;
+    u16 vtxIndex;
+    u8 magicArrowIndex;
+
+    pauseCtx->equipTargetItem = cursorItem;
+    pauseCtx->equipTargetSlot = cursorSlot;
+    pauseCtx->mainState = PAUSE_MAIN_STATE_EQUIP_ITEM;
+    vtxIndex = cursorSlot * 4;
+    pauseCtx->equipAnimX = pauseCtx->itemVtx[vtxIndex].v.ob[0] * 10;
+    pauseCtx->equipAnimY = pauseCtx->itemVtx[vtxIndex].v.ob[1] * 10;
+    pauseCtx->equipAnimAlpha = 255;
+    sEquipMagicArrowSlotHoldTimer = 0;
+    sEquipState = EQUIP_STATE_MOVE_TO_C_BTN;
+    sEquipAnimTimer = 10;
+
+    if ((pauseCtx->equipTargetItem == ITEM_ARROW_FIRE) ||
+        (pauseCtx->equipTargetItem == ITEM_ARROW_ICE) ||
+        (pauseCtx->equipTargetItem == ITEM_ARROW_LIGHT)) {
+        magicArrowIndex = 0;
+        if (pauseCtx->equipTargetItem == ITEM_ARROW_ICE) {
+            magicArrowIndex = 1;
+        }
+        if (pauseCtx->equipTargetItem == ITEM_ARROW_LIGHT) {
+            magicArrowIndex = 2;
+        }
+        Audio_PlaySfx(NA_SE_SY_SET_FIRE_ARROW + magicArrowIndex);
+        pauseCtx->equipTargetItem = 0xB5 + magicArrowIndex;
+        pauseCtx->equipAnimAlpha = sEquipState = 0; // EQUIP_STATE_MAGIC_ARROW_GROW_ORB
+        sEquipAnimTimer = 6;
+    } else {
+        Audio_PlaySfx(NA_SE_SY_DECIDE);
+    }
+}
+
 void KaleidoScope_UpdateItemCursor(PlayState* play) {
     s32 pad1;
     PauseContext* pauseCtx = &play->pauseCtx;
@@ -408,63 +503,163 @@ void KaleidoScope_UpdateItemCursor(PlayState* play) {
     pauseCtx->nameColorSet = PAUSE_NAME_COLOR_SET_WHITE;
 
 #ifdef __SWITCH__
-    if ((pauseCtx->state == PAUSE_STATE_MAIN) && (pauseCtx->mainState == PAUSE_MAIN_STATE_IDLE) &&
-        (pauseCtx->pageIndex == PAUSE_ITEM) && !pauseCtx->itemDescriptionOn) {
+    {
         static bool sWasTouching = false;
-        HidTouchScreenState touchState = {0};
+        static bool sTouchDragActive = false;
+        static s32 sTouchStartX = 0;
+        static s32 sTouchStartY = 0;
+        static s32 sTouchLastX = 0;
+        static s32 sTouchLastY = 0;
+        static bool sTouchDragItemValid = false;
+        static u16 sTouchDragItem = PAUSE_ITEM_NONE;
+        static u16 sTouchDragSlot = 0;
+        static s32 sTouchHoldFrames = 0;
+        static bool sTouchHoldTriggered = false;
 
-        if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
-            if (!sWasTouching) {
-                sWasTouching = true;
+        if ((pauseCtx->state == PAUSE_STATE_MAIN) &&
+            ((pauseCtx->mainState == PAUSE_MAIN_STATE_IDLE) ||
+             (sTouchDragActive && (pauseCtx->mainState == PAUSE_MAIN_STATE_EQUIP_ITEM))) &&
+            (pauseCtx->pageIndex == PAUSE_ITEM) && !pauseCtx->itemDescriptionOn) {
 
+            HidTouchScreenState touchState = {0};
+            const s32 kDragThresholdSq = 50 * 50;
+            const s32 kCButtonTouchX[3] = { 880, 946, 1021 };
+            const s32 kCButtonTouchY[3] = { 78, 142, 88 };
+            const s32 kCButtonRadiusSq = 40 * 40;
+
+            if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
                 s32 touchX = (s32)touchState.touches[0].x;
                 s32 touchY = (s32)touchState.touches[0].y;
 
-                s32 col = (s32)((touchX - 390) / 100.4f + 0.5f);
-                s32 row = (s32)((touchY - 236) / 94.0f + 0.5f);
+                if (!sWasTouching) {
+                    sWasTouching = true;
+                    sTouchStartX = touchX;
+                    sTouchStartY = touchY;
+                    sTouchDragActive = false;
+                    sTouchHoldFrames = 0;
+                    sTouchHoldTriggered = false;
 
-                if (col < 0) col = 0;
-                if (col >= ITEM_GRID_COLS) col = ITEM_GRID_COLS - 1;
-                if (row < 0) row = 0;
-                if (row >= ITEM_GRID_ROWS) row = ITEM_GRID_ROWS - 1;
+                    s32 col = (s32)((touchX - 390) / 100.4f + 0.5f);
+                    s32 row = (s32)((touchY - 236) / 94.0f + 0.5f);
 
-                s32 newPoint = col + (row * ITEM_GRID_COLS);
-                if (newPoint < ITEM_NUM_SLOTS) {
-                    u16 touchCursorItem;
+                    s32 newPoint = col + (row * ITEM_GRID_COLS);
+                    if ((col >= 0) && (col < ITEM_GRID_COLS) && (row >= 0) && (row < ITEM_GRID_ROWS) &&
+                        (newPoint < ITEM_NUM_SLOTS)) {
+                        u16 touchCursorItem;
 
-                    pauseCtx->cursorXIndex[PAUSE_ITEM] = col;
-                    pauseCtx->cursorYIndex[PAUSE_ITEM] = row;
-                    pauseCtx->cursorPoint[PAUSE_ITEM] = newPoint;
-                    pauseCtx->cursorSpecialPos = 0;
-                    pauseCtx->cursorShrinkRate = 4.0f;
+                        pauseCtx->cursorXIndex[PAUSE_ITEM] = col;
+                        pauseCtx->cursorYIndex[PAUSE_ITEM] = row;
+                        pauseCtx->cursorPoint[PAUSE_ITEM] = newPoint;
+                        pauseCtx->cursorSpecialPos = 0;
+                        pauseCtx->cursorShrinkRate = 4.0f;
 
-                    touchCursorItem = gSaveContext.save.saveInfo.inventory.items[newPoint];
+                        touchCursorItem = gSaveContext.save.saveInfo.inventory.items[newPoint];
 
-                    if (touchCursorItem == ITEM_NONE) {
-                        touchCursorItem = PAUSE_ITEM_NONE;
-                        pauseCtx->cursorColorSet = PAUSE_CURSOR_COLOR_SET_WHITE;
-                    } else {
-                        pauseCtx->cursorColorSet = PAUSE_CURSOR_COLOR_SET_YELLOW;
-                    }
+                        if (touchCursorItem == ITEM_NONE) {
+                            touchCursorItem = PAUSE_ITEM_NONE;
+                            pauseCtx->cursorColorSet = PAUSE_CURSOR_COLOR_SET_WHITE;
+                        } else {
+                            pauseCtx->cursorColorSet = PAUSE_CURSOR_COLOR_SET_YELLOW;
+                        }
 
-                    pauseCtx->cursorItem[PAUSE_ITEM] = touchCursorItem;
-                    pauseCtx->cursorSlot[PAUSE_ITEM] = newPoint;
+                        pauseCtx->cursorItem[PAUSE_ITEM] = touchCursorItem;
+                        pauseCtx->cursorSlot[PAUSE_ITEM] = newPoint;
 
-                    if ((touchCursorItem != (u16)PAUSE_ITEM_NONE) && (msgCtx->msgLength == 0)) {
-                        if (gSaveContext.buttonStatus[EQUIP_SLOT_A] == BTN_DISABLED) {
-                            gSaveContext.buttonStatus[EQUIP_SLOT_A] = BTN_ENABLED;
+                        sTouchDragItemValid = (touchCursorItem != (u16)PAUSE_ITEM_NONE);
+                        sTouchDragItem = touchCursorItem;
+                        sTouchDragSlot = newPoint;
+
+                        if ((touchCursorItem != (u16)PAUSE_ITEM_NONE) && (msgCtx->msgLength == 0)) {
+                            if (gSaveContext.buttonStatus[EQUIP_SLOT_A] == BTN_DISABLED) {
+                                gSaveContext.buttonStatus[EQUIP_SLOT_A] = BTN_ENABLED;
+                                gSaveContext.hudVisibility = HUD_VISIBILITY_IDLE;
+                                Interface_SetHudVisibility(HUD_VISIBILITY_ALL);
+                            }
+                        } else if (gSaveContext.buttonStatus[EQUIP_SLOT_A] != BTN_DISABLED) {
+                            gSaveContext.buttonStatus[EQUIP_SLOT_A] = BTN_DISABLED;
                             gSaveContext.hudVisibility = HUD_VISIBILITY_IDLE;
                             Interface_SetHudVisibility(HUD_VISIBILITY_ALL);
                         }
-                    } else if (gSaveContext.buttonStatus[EQUIP_SLOT_A] != BTN_DISABLED) {
-                        gSaveContext.buttonStatus[EQUIP_SLOT_A] = BTN_DISABLED;
-                        gSaveContext.hudVisibility = HUD_VISIBILITY_IDLE;
-                        Interface_SetHudVisibility(HUD_VISIBILITY_ALL);
+                    } else {
+                        sTouchDragItemValid = false;
+                    }
+                } else {
+                    s32 deltaX = touchX - sTouchStartX;
+                    s32 deltaY = touchY - sTouchStartY;
+                    s32 dragDistSq = (deltaX * deltaX) + (deltaY * deltaY);
+
+                    if (!sTouchDragActive && sTouchDragItemValid && (dragDistSq >= kDragThresholdSq)) {
+                        pauseCtx->equipTargetItem = sTouchDragItem;
+                        pauseCtx->mainState = PAUSE_MAIN_STATE_EQUIP_ITEM;
+                        pauseCtx->equipAnimAlpha = 255;
+                        pauseCtx->equipAnimScale = 320;
+                        sTouchDragActive = true;
+                        gTouchDragInProgress = 1;
+                    }
+
+                    if ((!sTouchDragActive) && !sTouchHoldTriggered && sTouchDragItemValid &&
+                        (dragDistSq < kDragThresholdSq)) {
+                        sTouchHoldFrames++;
+                        if (sTouchHoldFrames >= 30) {
+                            sTouchHoldTriggered = true;
+                            if ((pauseCtx->debugEditor == DEBUG_EDITOR_NONE) && (msgCtx->msgLength == 0) &&
+                                GameInteractor_Should(VB_KALEIDO_DISPLAY_ITEM_TEXT, true, &sTouchDragItem)) {
+                                pauseCtx->itemDescriptionOn = true;
+                                if (pauseCtx->cursorYIndex[PAUSE_ITEM] < 2) {
+                                    func_801514B0(play, 0x1700 + pauseCtx->cursorItem[PAUSE_ITEM], 3);
+                                } else {
+                                    func_801514B0(play, 0x1700 + pauseCtx->cursorItem[PAUSE_ITEM], 1);
+                                }
+                            }
+                        }
+                    }
+
+                    if (sTouchDragActive) {
+                        f32 colF = (touchX - 390) / 100.4f;
+                        f32 rowF = (touchY - 236) / 94.0f;
+                        pauseCtx->equipAnimX = (s16)(10.0f * (-96.0f + colF * 32.0f));
+                        pauseCtx->equipAnimY = (s16)(10.0f * (58.0f - rowF * 32.0f));
+                    }
+                }
+
+                sTouchLastX = touchX;
+                sTouchLastY = touchY;
+            } else if (sWasTouching) {
+                sWasTouching = false;
+
+                if (sTouchDragActive) {
+                    bool didEquip = false;
+                    s32 i;
+
+                    sTouchDragActive = false;
+                    gTouchDragInProgress = 0;
+
+                    for (i = 0; i < 3; i++) {
+                        s32 dx = sTouchLastX - kCButtonTouchX[i];
+                        s32 dy = sTouchLastY - kCButtonTouchY[i];
+                        s32 distToBtnSq = (dx * dx) + (dy * dy);
+
+                        if (distToBtnSq <= kCButtonRadiusSq) {
+                            u8 targetCBtn = (u8)i;
+
+                            if (KaleidoScope_CanEquipToCButton(play, targetCBtn)) {
+                                pauseCtx->equipTargetCBtn = targetCBtn;
+
+                                if (GameInteractor_Should(VB_KALEIDO_EQUIP_ITEM_TO_BUTTON, true, sTouchDragSlot,
+                                                           sTouchDragItem)) {
+                                    KaleidoScope_TriggerItemEquip(play, sTouchDragSlot, sTouchDragItem);
+                                    didEquip = true;
+                                }
+                            }
+                            break;
+                        }
+                    }
+
+                    if (!didEquip) {
+                        pauseCtx->mainState = PAUSE_MAIN_STATE_IDLE;
                     }
                 }
             }
-        } else {
-            sWasTouching = false;
         }
     }
 #endif
@@ -707,142 +902,46 @@ void KaleidoScope_UpdateItemCursor(PlayState* play) {
                     CHECK_BTN_ANY(CONTROLLER1(&play->state)->press.button,
                                   BTN_CLEFT | BTN_CDOWN | BTN_CRIGHT | BTN_DPAD_EQUIP)) {
 
-                    // Ensure that a transformation mask can not be unequipped while being used
-                    if (GET_PLAYER_FORM != PLAYER_FORM_HUMAN) {
-                        if (1) {}
-                        if (CHECK_BTN_ALL(CONTROLLER1(&play->state)->press.button, BTN_CLEFT)) {
-                            if (sPlayerFormItems[GET_PLAYER_FORM] == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_LEFT)) {
-                                Audio_PlaySfx(NA_SE_SY_ERROR);
-                                return;
-                            }
-                        } else if (CHECK_BTN_ALL(CONTROLLER1(&play->state)->press.button, BTN_CDOWN)) {
-                            if (sPlayerFormItems[GET_PLAYER_FORM] == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_DOWN)) {
-                                Audio_PlaySfx(NA_SE_SY_ERROR);
-                                return;
-                            }
-                        } else if (CHECK_BTN_ALL(CONTROLLER1(&play->state)->press.button, BTN_CRIGHT)) {
-                            if (sPlayerFormItems[GET_PLAYER_FORM] == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_RIGHT)) {
-                                Audio_PlaySfx(NA_SE_SY_ERROR);
-                                return;
-                            }
-                        }
-                        // #region 2S2H [Dpad]
-                        else if (CVarGetInteger("gEnhancements.Dpad.DpadEquips", 0)) {
-                            if (CHECK_BTN_ALL(CONTROLLER1(&play->state)->press.button, BTN_DRIGHT)) {
-                                if (sPlayerFormItems[GET_PLAYER_FORM] ==
-                                    DPAD_BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_D_RIGHT)) {
-                                    Audio_PlaySfx(NA_SE_SY_ERROR);
-                                    return;
-                                }
-                            } else if (CHECK_BTN_ALL(CONTROLLER1(&play->state)->press.button, BTN_DLEFT)) {
-                                if (sPlayerFormItems[GET_PLAYER_FORM] == DPAD_BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_D_LEFT)) {
-                                    Audio_PlaySfx(NA_SE_SY_ERROR);
-                                    return;
-                                }
-                            } else if (CHECK_BTN_ALL(CONTROLLER1(&play->state)->press.button, BTN_DDOWN)) {
-                                if (sPlayerFormItems[GET_PLAYER_FORM] == DPAD_BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_D_DOWN)) {
-                                    Audio_PlaySfx(NA_SE_SY_ERROR);
-                                    return;
-                                }
-                            } else if (CHECK_BTN_ALL(CONTROLLER1(&play->state)->press.button, BTN_DUP)) {
-                                if (sPlayerFormItems[GET_PLAYER_FORM] == DPAD_BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_D_UP)) {
-                                    Audio_PlaySfx(NA_SE_SY_ERROR);
-                                    return;
-                                }
-                            }
-                        }
-                        // #endregion
-                    }
+                    // Determine which C-button (or D-pad slot) is being targeted
+                    u8 targetCBtn;
 
-                    // Ensure that a non-transformation mask can not be unequipped while being used
                     if (CHECK_BTN_ALL(CONTROLLER1(&play->state)->press.button, BTN_CLEFT)) {
-                        if ((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
-                            (Player_GetCurMaskItemId(play) == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_LEFT))) {
-                            Audio_PlaySfx(NA_SE_SY_ERROR);
-                            return;
-                        }
-                        pauseCtx->equipTargetCBtn = PAUSE_EQUIP_C_LEFT;
+                        targetCBtn = PAUSE_EQUIP_C_LEFT;
                     } else if (CHECK_BTN_ALL(CONTROLLER1(&play->state)->press.button, BTN_CDOWN)) {
-                        if ((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
-                            (Player_GetCurMaskItemId(play) == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_DOWN))) {
-                            Audio_PlaySfx(NA_SE_SY_ERROR);
-                            return;
-                        }
-                        pauseCtx->equipTargetCBtn = PAUSE_EQUIP_C_DOWN;
+                        targetCBtn = PAUSE_EQUIP_C_DOWN;
                     } else if (CHECK_BTN_ALL(CONTROLLER1(&play->state)->press.button, BTN_CRIGHT)) {
-                        if ((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
-                            (Player_GetCurMaskItemId(play) == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_RIGHT))) {
-                            Audio_PlaySfx(NA_SE_SY_ERROR);
-                            return;
-                        }
-                        pauseCtx->equipTargetCBtn = PAUSE_EQUIP_C_RIGHT;
+                        targetCBtn = PAUSE_EQUIP_C_RIGHT;
                     }
                     // #region 2S2H [Dpad]
                     else if (CVarGetInteger("gEnhancements.Dpad.DpadEquips", 0)) {
                         if (CHECK_BTN_ALL(CONTROLLER1(&play->state)->press.button, BTN_DRIGHT)) {
-                            if ((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
-                                (Player_GetCurMaskItemId(play) == DPAD_BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_D_RIGHT))) {
-                                Audio_PlaySfx(NA_SE_SY_ERROR);
-                                return;
-                            }
-                            pauseCtx->equipTargetCBtn = PAUSE_EQUIP_D_RIGHT;
+                            targetCBtn = PAUSE_EQUIP_D_RIGHT;
                         } else if (CHECK_BTN_ALL(CONTROLLER1(&play->state)->press.button, BTN_DLEFT)) {
-                            if ((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
-                                (Player_GetCurMaskItemId(play) == DPAD_BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_D_LEFT))) {
-                                Audio_PlaySfx(NA_SE_SY_ERROR);
-                                return;
-                            }
-                            pauseCtx->equipTargetCBtn = PAUSE_EQUIP_D_LEFT;
+                            targetCBtn = PAUSE_EQUIP_D_LEFT;
                         } else if (CHECK_BTN_ALL(CONTROLLER1(&play->state)->press.button, BTN_DDOWN)) {
-                            if ((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
-                                (Player_GetCurMaskItemId(play) == DPAD_BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_D_DOWN))) {
-                                Audio_PlaySfx(NA_SE_SY_ERROR);
-                                return;
-                            }
-                            pauseCtx->equipTargetCBtn = PAUSE_EQUIP_D_DOWN;
+                            targetCBtn = PAUSE_EQUIP_D_DOWN;
                         } else if (CHECK_BTN_ALL(CONTROLLER1(&play->state)->press.button, BTN_DUP)) {
-                            if ((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
-                                (Player_GetCurMaskItemId(play) == DPAD_BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_D_UP))) {
-                                Audio_PlaySfx(NA_SE_SY_ERROR);
-                                return;
-                            }
-                            pauseCtx->equipTargetCBtn = PAUSE_EQUIP_D_UP;
+                            targetCBtn = PAUSE_EQUIP_D_UP;
+                        } else {
+                            return;
                         }
                     }
                     // #endregion
+                    else {
+                        return;
+                    }
+
+                    pauseCtx->equipTargetCBtn = targetCBtn;
+
+                    if (!KaleidoScope_CanEquipToCButton(play, targetCBtn)) {
+                        return;
+                    }
+
                     if (!GameInteractor_Should(VB_KALEIDO_EQUIP_ITEM_TO_BUTTON, true, cursorSlot, cursorItem)) {
                         return;
                     }
 
-                    // Equip item to the C buttons
-                    pauseCtx->equipTargetItem = cursorItem;
-                    pauseCtx->equipTargetSlot = cursorSlot;
-                    pauseCtx->mainState = PAUSE_MAIN_STATE_EQUIP_ITEM;
-                    vtxIndex = cursorSlot * 4;
-                    pauseCtx->equipAnimX = pauseCtx->itemVtx[vtxIndex].v.ob[0] * 10;
-                    pauseCtx->equipAnimY = pauseCtx->itemVtx[vtxIndex].v.ob[1] * 10;
-                    pauseCtx->equipAnimAlpha = 255;
-                    sEquipMagicArrowSlotHoldTimer = 0;
-                    sEquipState = EQUIP_STATE_MOVE_TO_C_BTN;
-                    sEquipAnimTimer = 10;
-
-                    if ((pauseCtx->equipTargetItem == ITEM_ARROW_FIRE) ||
-                        (pauseCtx->equipTargetItem == ITEM_ARROW_ICE) ||
-                        (pauseCtx->equipTargetItem == ITEM_ARROW_LIGHT)) {
-                        magicArrowIndex = 0;
-                        if (pauseCtx->equipTargetItem == ITEM_ARROW_ICE) {
-                            magicArrowIndex = 1;
-                        }
-                        if (pauseCtx->equipTargetItem == ITEM_ARROW_LIGHT) {
-                            magicArrowIndex = 2;
-                        }
-                        Audio_PlaySfx(NA_SE_SY_SET_FIRE_ARROW + magicArrowIndex);
-                        pauseCtx->equipTargetItem = 0xB5 + magicArrowIndex;
-                        pauseCtx->equipAnimAlpha = sEquipState = 0; // EQUIP_STATE_MAGIC_ARROW_GROW_ORB
-                        sEquipAnimTimer = 6;
-                    } else {
-                        Audio_PlaySfx(NA_SE_SY_DECIDE);
-                    }
+                    KaleidoScope_TriggerItemEquip(play, cursorSlot, cursorItem);
                 } else if ((pauseCtx->debugEditor == DEBUG_EDITOR_NONE) && (pauseCtx->state == PAUSE_STATE_MAIN) &&
                            (pauseCtx->mainState == PAUSE_MAIN_STATE_IDLE) &&
                            CHECK_BTN_ALL(CONTROLLER1(&play->state)->press.button, BTN_A) && (msgCtx->msgLength == 0)) {
@@ -1554,6 +1653,10 @@ void KaleidoScope_UpdateItemEquip(PlayState* play) {
     Vtx* bowItemVtx;
     u16 offsetX;
     u16 offsetY;
+
+    if (gTouchDragInProgress) {
+        return;
+    }
 
     // Grow glowing orb when equipping magic arrows
     if (sEquipState == EQUIP_STATE_MAGIC_ARROW_GROW_ORB) {

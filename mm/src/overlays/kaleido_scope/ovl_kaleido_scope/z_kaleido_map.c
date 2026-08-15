@@ -12,6 +12,8 @@
 #include "archives/icon_item_24_static/icon_item_24_static_yar.h"
 
 #include "BenPort.h"
+#include <switch.h>
+#include <stdio.h>
 
 #include "2s2h/GameInteractor/GameInteractor.h"
 #include "2s2h/Enhancements/Songs/Songs.h"
@@ -1193,5 +1195,189 @@ void KaleidoScope_UpdateWorldMapCursor(PlayState* play) {
         if (oldCursorPoint != pauseCtx->cursorPoint[PAUSE_WORLD_MAP]) {
             Audio_PlaySfx(NA_SE_SY_CURSOR);
         }
+    }
+}
+
+
+void KaleidoScope_HandleOwlWarpTouch(PlayState* play) {
+    PauseContext* pauseCtx = &play->pauseCtx;
+    static bool sOwlWarpWasTouching = false;
+
+    if (pauseCtx->state != PAUSE_STATE_OWL_WARP_SELECT) {
+        sOwlWarpWasTouching = false;
+        return;
+    }
+
+    static const f32 sTouchOwlWarpCursorsX[OWL_WARP_MAX - 1] = {
+        -50.0f, -38.0f, 6.0f, 11.0f, 8.0f, 0.0f, 12.0f, 31.0f, 48.0f, 56.0f,
+    };
+    static const f32 sTouchOwlWarpCursorsY[OWL_WARP_MAX - 1] = {
+        -14.0f, -39.0f, 23.0f, 11.0f, -8.0f, -15.0f, -31.0f, -30.0f, -10.0f, 11.0f,
+    };
+
+    HidTouchScreenState touchState = {0};
+
+    if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
+        if (!sOwlWarpWasTouching) {
+            sOwlWarpWasTouching = true;
+
+            s32 touchX = (s32)touchState.touches[0].x;
+            s32 touchY = (s32)touchState.touches[0].y;
+
+            f32 vx = -60.84f + (touchX - 390) * (32.0f / 124.9f);
+            f32 vy = 31.8f - (touchY - 236) * (32.0f / 125.8f);
+
+            char sOwlWarpTouchDebugBuf[128];
+            snprintf(sOwlWarpTouchDebugBuf, sizeof(sOwlWarpTouchDebugBuf),
+                     "OwlWarp touch: raw=(%d,%d) vx=%.1f vy=%.1f", touchX, touchY, vx, vy);
+            SwitchTouchDebugLog(sOwlWarpTouchDebugBuf);
+
+            s32 bestPoint = -1;
+            f32 bestDistSq = 400.0f; // max ~20 vertex units away to count as a hit
+            s32 wi;
+
+            for (wi = OWL_WARP_GREAT_BAY_COAST; wi <= OWL_WARP_STONE_TOWER; wi++) {
+                if (!pauseCtx->worldMapPoints[wi]) {
+                    continue;
+                }
+
+                f32 dx = vx - sTouchOwlWarpCursorsX[wi];
+                f32 dy = vy - sTouchOwlWarpCursorsY[wi];
+                f32 distSq = dx * dx + dy * dy;
+
+                if (distSq < bestDistSq) {
+                    bestDistSq = distSq;
+                    bestPoint = wi;
+                }
+            }
+
+            if (bestPoint >= 0) {
+                pauseCtx->cursorColorSet = PAUSE_CURSOR_COLOR_SET_BLUE;
+                pauseCtx->cursorPoint[PAUSE_WORLD_MAP] = bestPoint;
+                pauseCtx->cursorItem[PAUSE_MAP] = sOwlWarpPauseItems[bestPoint] - ITEM_MAP_POINT_GREAT_BAY;
+                pauseCtx->cursorSlot[PAUSE_MAP] = 31 + bestPoint;
+
+                Audio_PlaySfx(NA_SE_SY_DECIDE);
+                Message_StartTextbox(play, 0x1B93, NULL);
+                pauseCtx->state = PAUSE_STATE_OWL_WARP_CONFIRM;
+            }
+        }
+    } else {
+        sOwlWarpWasTouching = false;
+    }
+}
+
+
+void KaleidoScope_HandleDungeonMapTouch(PlayState* play) {
+    PauseContext* pauseCtx = &play->pauseCtx;
+    MessageContext* msgCtx = &play->msgCtx;
+    static bool sDungeonMapWasTouching = false;
+
+    if (!(sInDungeonScene && (pauseCtx->state == PAUSE_STATE_MAIN) &&
+          (pauseCtx->mainState == PAUSE_MAIN_STATE_IDLE) && (pauseCtx->pageIndex == PAUSE_MAP))) {
+        sDungeonMapWasTouching = false;
+        return;
+    }
+
+    static const f32 sTouchDungeonCursorsX[] = {
+        -72.0f, -47.0f, -26.0f, -50.0f, -48.0f, -48.0f, -48.0f, -48.0f, -48.0f,
+    };
+    static const f32 sTouchDungeonCursorsY[] = {
+        -47.0f, -47.0f, -47.0f, -30.0f, 33.0f, 22.0f, 11.0f, -2.0f, -13.0f,
+    };
+    static const f32 sTouchDungeonHalfW[] = {
+        15.0f, 15.0f, 15.0f, 15.0f, 18.0f, 18.0f, 18.0f, 18.0f, 18.0f,
+    };
+    static const f32 sTouchDungeonHalfH[] = {
+        15.0f, 15.0f, 15.0f, 15.0f, 8.0f, 8.0f, 8.0f, 8.0f, 8.0f,
+    };
+
+    HidTouchScreenState touchState = {0};
+
+    if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
+        if (!sDungeonMapWasTouching) {
+            sDungeonMapWasTouching = true;
+
+            s32 touchX = (s32)touchState.touches[0].x;
+            s32 touchY = (s32)touchState.touches[0].y;
+
+            f32 vx = -69.0f + (touchX - 390) * (32.0f / 100.4f);
+            f32 vy = 48.0f - (touchY - 236) * (32.0f / 94.0f);
+
+            s32 hitPoint = -1;
+            s32 di;
+
+            for (di = DUNGEON_BOSS_KEY; di <= DUNGEON_FLOOR_INDEX_0; di++) {
+                f32 left = sTouchDungeonCursorsX[di] - sTouchDungeonHalfW[di];
+                f32 right = sTouchDungeonCursorsX[di] + sTouchDungeonHalfW[di];
+                f32 top = sTouchDungeonCursorsY[di] + sTouchDungeonHalfH[di];
+                f32 bottom = sTouchDungeonCursorsY[di] - sTouchDungeonHalfH[di];
+
+                if ((vx >= left) && (vx <= right) && (vy <= top) && (vy >= bottom)) {
+                    hitPoint = di;
+                    break;
+                }
+            }
+
+            // Only Boss Key/Compass/Map require actually owning the item to be
+            // selectable (matches stick navigation gating). Stray Fairies is
+            // always selectable. Floors are only selectable if this dungeon
+            // actually has that floor, using the same check stick navigation uses.
+            bool sFloorValid = false;
+            if (hitPoint >= DUNGEON_FLOOR_INDEX_4) {
+                s32 sFloorI = hitPoint - DUNGEON_FLOOR_INDEX_4;
+                sFloorValid = GET_DUNGEON_FLOOR_VISITED(gSaveContext.dungeonSceneSharedIndex, sFloorI) ||
+                              MapDisp_IsValidStorey(FLOOR_INDEX_MAX - sFloorI);
+            }
+
+            bool sCanSelect = (hitPoint >= 0) &&
+                               (sFloorValid || (hitPoint == DUNGEON_STRAY_FAIRIES) ||
+                                CHECK_DUNGEON_ITEM(hitPoint, gSaveContext.dungeonSceneSharedIndex));
+
+            if (sCanSelect) {
+                bool sAlreadySelected = (pauseCtx->cursorPoint[PAUSE_MAP] == hitPoint);
+
+                pauseCtx->cursorPoint[PAUSE_MAP] = hitPoint;
+                pauseCtx->cursorSlot[PAUSE_MAP] = hitPoint;
+
+                // Boss Key/Compass/Map are the only slots on the "item" column
+                // (cursorXIndex 0); Stray Fairies and floors are on the other
+                // column (cursorXIndex 1), matching original stick navigation.
+                if (hitPoint < DUNGEON_STRAY_FAIRIES) {
+                    pauseCtx->cursorXIndex[PAUSE_MAP] = 0;
+                    pauseCtx->cursorMapDungeonItem = hitPoint;
+                    pauseCtx->cursorItem[PAUSE_MAP] = ITEM_KEY_BOSS + hitPoint;
+                } else {
+                    pauseCtx->cursorXIndex[PAUSE_MAP] = 1;
+                    pauseCtx->cursorItem[PAUSE_MAP] = PAUSE_ITEM_NONE;
+                }
+
+                // NOTE: deliberately NOT writing cursorSpecialPos here - confirmed
+                // via isolation testing that writing it (even to 0, its normal
+                // "no special position" value) triggers a phantom floor-number
+                // display bug and blocks subsequent controller floor navigation.
+                // Leaving it untouched avoids the bug; it should already be 0
+                // during normal play since the player is tapping a real button,
+                // not navigating toward the page-turn arrows.
+
+                // Only show the description on a SECOND tap of an already-selected
+                // slot, not on the first tap that merely selects it.
+                bool sCanShowDescription = (hitPoint == DUNGEON_STRAY_FAIRIES) ||
+                                            CHECK_DUNGEON_ITEM(hitPoint, gSaveContext.dungeonSceneSharedIndex);
+
+                if (sAlreadySelected && (msgCtx->msgLength == 0) && sCanShowDescription) {
+                    pauseCtx->itemDescriptionOn = true;
+                    if (hitPoint == DUNGEON_STRAY_FAIRIES) {
+                        func_801514B0(play, 0x17AF, 1);
+                    } else {
+                        func_801514B0(play, 0x17AC + hitPoint, 1);
+                    }
+                }
+
+                Audio_PlaySfx(NA_SE_SY_CURSOR);
+            }
+        }
+    } else {
+        sDungeonMapWasTouching = false;
     }
 }
