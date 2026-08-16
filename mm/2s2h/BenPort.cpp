@@ -1,4 +1,7 @@
 #include "BenPort.h"
+#if not defined(__SWITCH__) && not defined(__WIIU__)
+#include "Extractor/Extract.h"
+#endif
 #include <iostream>
 #include <algorithm>
 #include <filesystem>
@@ -48,7 +51,6 @@ extern "C" void SwitchTouchDebugLog(const char* src) {
 #endif
 
 #if not defined (__SWITCH__) && not defined(__WIIU__)
-#include "Extractor/Extract.h"
 #endif
 // OTRTODO
 // #include <functions.h>
@@ -287,7 +289,9 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
             args.push_back(argv[i]);
         }
     }
+#if !defined(__SWITCH__) && !defined(__WIIU__)
     Extractor extract;
+#endif
     PromptSteps promptStep = PS_FILE_CHECK;
     std::atomic<size_t> extractCount = 0, totalExtract = 0;
 
@@ -485,6 +489,7 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                 break;
             }
             case ES_EXTRACT: {
+#if !defined(__SWITCH__) && !defined(__WIIU__)
                 switch (promptStep) {
                     case PS_FILE_CHECK: {
                         if (!std::filesystem::exists(Ship::Context::LocateFileAcrossAppDirs("mm.o2r", appShortName))) {
@@ -530,6 +535,9 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                     default:
                         break;
                 }
+#else
+                extractStep = ES_VERIFY;
+#endif
                 break;
             }
             case ES_VERIFY: {
