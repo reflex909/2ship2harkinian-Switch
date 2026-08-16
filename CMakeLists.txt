@@ -172,6 +172,7 @@ if(NOT TARGET tinyxml2::tinyxml2)
         tinyxml2_fresh
         GIT_REPOSITORY https://github.com/leethomason/tinyxml2.git
         GIT_TAG 10.0.0
+        OVERRIDE_FIND_PACKAGE
     )
     set(tinyxml2_BUILD_TESTING OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(tinyxml2_fresh)
