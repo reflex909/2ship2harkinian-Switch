@@ -1,4 +1,7 @@
 #include "BenPort.h"
+#if not defined(__SWITCH__) && not defined(__WIIU__)
+#include "Extractor/Extract.h"
+#endif
 #include <iostream>
 #include <algorithm>
 #include <filesystem>
@@ -37,7 +40,22 @@
 #else
 #include <SDL2/SDL_scancode.h>
 #endif
+<<<<<<< HEAD
 #include "Extractor/Extract.h"
+=======
+
+#ifdef __SWITCH__
+#include <ship/port/switch/SwitchImpl.h>
+#include <switch/services/hid.h>
+
+extern "C" void SwitchTouchDebugLog(const char* src) {
+    SPDLOG_INFO("{}", src);
+}
+#endif
+
+#if not defined (__SWITCH__) && not defined(__WIIU__)
+#endif
+>>>>>>> 57bcc3f96 (Link PNG::PNG in mm target to fix undefined libpng references in ColorPictograph.cpp)
 // OTRTODO
 // #include <functions.h>
 #include "2s2h/Enhancements/FrameInterpolation/FrameInterpolation.h"
@@ -275,7 +293,9 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
             args.push_back(argv[i]);
         }
     }
+#if !defined(__SWITCH__) && !defined(__WIIU__)
     Extractor extract;
+#endif
     PromptSteps promptStep = PS_FILE_CHECK;
     std::atomic<size_t> extractCount = 0, totalExtract = 0;
 
@@ -473,6 +493,7 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                 break;
             }
             case ES_EXTRACT: {
+#if !defined(__SWITCH__) && !defined(__WIIU__)
                 switch (promptStep) {
                     case PS_FILE_CHECK: {
                         if (!std::filesystem::exists(Ship::Context::LocateFileAcrossAppDirs("mm.o2r", appShortName))) {
@@ -518,6 +539,9 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
                     default:
                         break;
                 }
+#else
+                extractStep = ES_VERIFY;
+#endif
                 break;
             }
             case ES_VERIFY: {
