@@ -161,6 +161,26 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 add_compile_definitions(CONTROLLERBUTTONS_T=uint32_t)
 
 ################################################################################
+# tinyxml2: devkitPro's switch-tinyxml2 portlib (6.0.0, built 2019) predates
+# APIs this project needs (e.g. InsertNewChildElement). Fetch and build a
+# current version ourselves and alias it to the standard tinyxml2::tinyxml2
+# target name so downstream find_package(tinyxml2) calls resolve to it.
+################################################################################
+if(NOT TARGET tinyxml2::tinyxml2)
+    include(FetchContent)
+    FetchContent_Declare(
+        tinyxml2_fresh
+        GIT_REPOSITORY https://github.com/leethomason/tinyxml2.git
+        GIT_TAG 10.0.0
+    )
+    set(tinyxml2_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(tinyxml2_fresh)
+    if(NOT TARGET tinyxml2::tinyxml2 AND TARGET tinyxml2)
+        add_library(tinyxml2::tinyxml2 ALIAS tinyxml2)
+    endif()
+endif()
+
+################################################################################
 # Sub-projects
 ################################################################################
 add_subdirectory(libultraship ${CMAKE_BINARY_DIR}/libultraship)
