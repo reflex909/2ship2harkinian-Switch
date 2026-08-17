@@ -4,6 +4,8 @@
 #include "global.h"
 #include "z64pause_menu.h"
 
+
+extern u8 gTouchDragInProgress;
 #define PAUSE_ITEM_NONE 999
 
 #define PAUSE_CURSOR_PAGE_LEFT 10
@@ -316,6 +318,9 @@ void KaleidoScope_DrawDungeonMap(PlayState* play);
 void KaleidoScope_UpdateDungeonCursor(PlayState* play);
 void KaleidoScope_DrawWorldMap(PlayState* play);
 void KaleidoScope_UpdateWorldMapCursor(PlayState* play);
+void KaleidoScope_HandleOwlWarpTouch(PlayState* play);
+void KaleidoScope_HandleDungeonMapTouch(PlayState* play);
+extern s16 sInDungeonScene;
 
 // Collect
 void KaleidoScope_DrawQuestStatus(PlayState* play);

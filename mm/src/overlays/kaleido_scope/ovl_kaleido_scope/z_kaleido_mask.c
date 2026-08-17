@@ -5,6 +5,7 @@
  */
 
 #include "z_kaleido_scope.h"
+#include <switch.h>
 #include "interface/parameter_static/parameter_static.h"
 
 #include "2s2h/BenGui/HudEditor.h"
@@ -295,6 +296,73 @@ u8 sMaskPlayerFormItems[PLAYER_FORM_MAX] = {
     ITEM_NONE,              // PLAYER_FORM_HUMAN
 };
 
+
+/**
+ * Checks whether it is safe to equip a mask to the given C-button slot right now.
+ * Blocks unequipping a mask that is currently worn or assigned to the current player form,
+ * and blocks unequipping the Deku/Goron mask while underwater (environmental hazard restriction).
+ * Plays an error sound and returns false if the equip should be blocked.
+ */
+u8 KaleidoScope_CanEquipMaskToCButton(PlayState* play, u8 targetCBtn, u16 cursorSlot) {
+    if (targetCBtn == PAUSE_EQUIP_C_LEFT) {
+        if (((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
+             (Player_GetCurMaskItemId(play) == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_LEFT))) ||
+            ((sMaskPlayerFormItems[GET_PLAYER_FORM] != ITEM_NONE) &&
+             (sMaskPlayerFormItems[GET_PLAYER_FORM] == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_LEFT)))) {
+            Audio_PlaySfx(NA_SE_SY_ERROR);
+            return false;
+        }
+    } else if (targetCBtn == PAUSE_EQUIP_C_DOWN) {
+        if (((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
+             (Player_GetCurMaskItemId(play) == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_DOWN))) ||
+            ((sMaskPlayerFormItems[GET_PLAYER_FORM] != ITEM_NONE) &&
+             (sMaskPlayerFormItems[GET_PLAYER_FORM] == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_DOWN)))) {
+            Audio_PlaySfx(NA_SE_SY_ERROR);
+            return false;
+        }
+    } else if (targetCBtn == PAUSE_EQUIP_C_RIGHT) {
+        if (((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
+             (Player_GetCurMaskItemId(play) == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_RIGHT))) ||
+            ((sMaskPlayerFormItems[GET_PLAYER_FORM] != ITEM_NONE) &&
+             (sMaskPlayerFormItems[GET_PLAYER_FORM] == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_RIGHT)))) {
+            Audio_PlaySfx(NA_SE_SY_ERROR);
+            return false;
+        }
+    }
+
+    if ((Player_GetEnvironmentalHazard(play) >= PLAYER_ENV_HAZARD_UNDERWATER_FLOOR) &&
+        (Player_GetEnvironmentalHazard(play) <= PLAYER_ENV_HAZARD_UNDERWATER_FREE) &&
+        ((cursorSlot == (SLOT_MASK_DEKU - ITEM_NUM_SLOTS)) || (cursorSlot == (SLOT_MASK_GORON - ITEM_NUM_SLOTS)))) {
+        Audio_PlaySfx(NA_SE_SY_ERROR);
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Triggers the mask-equip animation/assignment sequence for the given mask item and slot,
+ * targeting whatever C-button is currently set in pauseCtx->equipTargetCBtn.
+ * Caller must set pauseCtx->equipTargetCBtn and confirm KaleidoScope_CanEquipMaskToCButton()
+ * returned true before calling this. cursorSlot is the raw mask-grid slot (0-based within
+ * the mask page), not offset by ITEM_NUM_SLOTS - this function applies that offset itself.
+ */
+void KaleidoScope_TriggerMaskEquip(PlayState* play, u16 cursorSlot, u16 cursorItem) {
+    PauseContext* pauseCtx = &play->pauseCtx;
+    u16 vtxIndex;
+
+    pauseCtx->equipTargetItem = cursorItem;
+    pauseCtx->equipTargetSlot = cursorSlot + ITEM_NUM_SLOTS;
+    pauseCtx->mainState = PAUSE_MAIN_STATE_EQUIP_MASK;
+    vtxIndex = cursorSlot * 4;
+    pauseCtx->equipAnimX = pauseCtx->maskVtx[vtxIndex].v.ob[0] * 10;
+    pauseCtx->equipAnimY = pauseCtx->maskVtx[vtxIndex].v.ob[1] * 10;
+    pauseCtx->equipAnimAlpha = 255;
+    sMaskEquipMagicArrowSlotHoldTimer = 0;
+    sMaskEquipState = EQUIP_STATE_MOVE_TO_C_BTN;
+    sMaskEquipAnimTimer = 10;
+    Audio_PlaySfx(NA_SE_SY_DECIDE);
+}
 void KaleidoScope_UpdateMaskCursor(PlayState* play) {
     Input* input = CONTROLLER1(&play->state);
     PauseContext* pauseCtx = &play->pauseCtx;
@@ -311,6 +379,171 @@ void KaleidoScope_UpdateMaskCursor(PlayState* play) {
 
     pauseCtx->cursorColorSet = PAUSE_CURSOR_COLOR_SET_WHITE;
     pauseCtx->nameColorSet = PAUSE_NAME_COLOR_SET_WHITE;
+#ifdef __SWITCH__
+    {
+        static bool sMaskWasTouching = false;
+        static bool sMaskTouchDragActive = false;
+        static s32 sMaskTouchStartX = 0;
+        static s32 sMaskTouchStartY = 0;
+        static s32 sMaskTouchLastX = 0;
+        static s32 sMaskTouchLastY = 0;
+        static bool sMaskTouchDragItemValid = false;
+        static u16 sMaskTouchDragItem = PAUSE_ITEM_NONE;
+        static u16 sMaskTouchDragSlot = 0;
+        static s32 sMaskTouchHoldFrames = 0;
+        static bool sMaskTouchHoldTriggered = false;
+
+        if ((pauseCtx->state == PAUSE_STATE_MAIN) &&
+            ((pauseCtx->mainState == PAUSE_MAIN_STATE_IDLE) ||
+             (sMaskTouchDragActive && (pauseCtx->mainState == PAUSE_MAIN_STATE_EQUIP_MASK))) &&
+            (pauseCtx->pageIndex == PAUSE_MASK) && !pauseCtx->itemDescriptionOn) {
+
+            HidTouchScreenState touchState = {0};
+            const s32 kDragThresholdSq = 50 * 50;
+            const s32 kCButtonTouchX[3] = { 880, 946, 1021 };
+            const s32 kCButtonTouchY[3] = { 78, 142, 88 };
+            const s32 kCButtonRadiusSq = 40 * 40;
+
+            if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
+                s32 touchX = (s32)touchState.touches[0].x;
+                s32 touchY = (s32)touchState.touches[0].y;
+
+                if (!sMaskWasTouching) {
+                    sMaskWasTouching = true;
+                    sMaskTouchStartX = touchX;
+                    sMaskTouchStartY = touchY;
+                    sMaskTouchDragActive = false;
+                    sMaskTouchHoldFrames = 0;
+                    sMaskTouchHoldTriggered = false;
+
+                    s32 col = (s32)((touchX - 390) / 100.4f + 0.5f);
+                    s32 row = (s32)((touchY - 236) / 94.0f + 0.5f);
+
+                    s32 newPoint = col + (row * MASK_GRID_COLS);
+                    if ((col >= 0) && (col < MASK_GRID_COLS) && (row >= 0) && (row < MASK_GRID_ROWS) &&
+                        (newPoint < MASK_NUM_SLOTS)) {
+                        u16 touchCursorItem;
+
+                        pauseCtx->cursorXIndex[PAUSE_MASK] = col;
+                        pauseCtx->cursorYIndex[PAUSE_MASK] = row;
+                        pauseCtx->cursorPoint[PAUSE_MASK] = newPoint;
+                        pauseCtx->cursorSpecialPos = 0;
+                        pauseCtx->cursorShrinkRate = 4.0f;
+
+                        touchCursorItem = gSaveContext.save.saveInfo.inventory.items[newPoint + ITEM_NUM_SLOTS];
+                        if (CHECK_GIVEN_MASK_ON_MOON(newPoint)) {
+                            touchCursorItem = ITEM_NONE;
+                        }
+
+                        if (touchCursorItem == ITEM_NONE) {
+                            touchCursorItem = PAUSE_ITEM_NONE;
+                            pauseCtx->cursorColorSet = PAUSE_CURSOR_COLOR_SET_WHITE;
+                        } else {
+                            pauseCtx->cursorColorSet = PAUSE_CURSOR_COLOR_SET_YELLOW;
+                        }
+
+                        pauseCtx->cursorItem[PAUSE_MASK] = touchCursorItem;
+                        pauseCtx->cursorSlot[PAUSE_MASK] = newPoint;
+
+                        sMaskTouchDragItemValid = (touchCursorItem != (u16)PAUSE_ITEM_NONE);
+                        sMaskTouchDragItem = touchCursorItem;
+                        sMaskTouchDragSlot = newPoint;
+
+                        if ((touchCursorItem != (u16)PAUSE_ITEM_NONE) && (msgCtx->msgLength == 0)) {
+                            if (gSaveContext.buttonStatus[EQUIP_SLOT_A] == BTN_DISABLED) {
+                                gSaveContext.buttonStatus[EQUIP_SLOT_A] = BTN_ENABLED;
+                                gSaveContext.hudVisibility = HUD_VISIBILITY_IDLE;
+                                Interface_SetHudVisibility(HUD_VISIBILITY_ALL);
+                            }
+                        } else if (gSaveContext.buttonStatus[EQUIP_SLOT_A] != BTN_DISABLED) {
+                            gSaveContext.buttonStatus[EQUIP_SLOT_A] = BTN_DISABLED;
+                            gSaveContext.hudVisibility = HUD_VISIBILITY_IDLE;
+                            Interface_SetHudVisibility(HUD_VISIBILITY_ALL);
+                        }
+                    } else {
+                        sMaskTouchDragItemValid = false;
+                    }
+                } else {
+                    s32 deltaX = touchX - sMaskTouchStartX;
+                    s32 deltaY = touchY - sMaskTouchStartY;
+                    s32 dragDistSq = (deltaX * deltaX) + (deltaY * deltaY);
+
+                    if (!sMaskTouchDragActive && sMaskTouchDragItemValid && (dragDistSq >= kDragThresholdSq)) {
+                        pauseCtx->equipTargetItem = sMaskTouchDragItem;
+                        pauseCtx->mainState = PAUSE_MAIN_STATE_EQUIP_MASK;
+                        pauseCtx->equipAnimAlpha = 255;
+                        pauseCtx->equipAnimScale = 320;
+                        sMaskTouchDragActive = true;
+                        gTouchDragInProgress = 1;
+                    }
+
+                    if (!sMaskTouchDragActive && !sMaskTouchHoldTriggered && sMaskTouchDragItemValid &&
+                        (dragDistSq < kDragThresholdSq)) {
+                        sMaskTouchHoldFrames++;
+                        if (sMaskTouchHoldFrames >= 30) {
+                            sMaskTouchHoldTriggered = true;
+                            if ((pauseCtx->debugEditor == DEBUG_EDITOR_NONE) && (msgCtx->msgLength == 0) &&
+                                GameInteractor_Should(VB_KALEIDO_DISPLAY_ITEM_TEXT, true,
+                                                       &pauseCtx->cursorItem[PAUSE_MASK])) {
+                                pauseCtx->itemDescriptionOn = true;
+                                if (pauseCtx->cursorYIndex[PAUSE_MASK] < 2) {
+                                    func_801514B0(play, 0x1700 + pauseCtx->cursorItem[PAUSE_MASK], 3);
+                                } else {
+                                    func_801514B0(play, 0x1700 + pauseCtx->cursorItem[PAUSE_MASK], 1);
+                                }
+                            }
+                        }
+                    }
+
+                    if (sMaskTouchDragActive) {
+                        f32 colF = (touchX - 390) / 100.4f;
+                        f32 rowF = (touchY - 236) / 94.0f;
+                        pauseCtx->equipAnimX = (s16)(10.0f * (-96.0f + colF * 32.0f));
+                        pauseCtx->equipAnimY = (s16)(10.0f * (58.0f - rowF * 32.0f));
+                    }
+                }
+
+                sMaskTouchLastX = touchX;
+                sMaskTouchLastY = touchY;
+            } else if (sMaskWasTouching) {
+                sMaskWasTouching = false;
+
+                if (sMaskTouchDragActive) {
+                    bool didEquip = false;
+                    s32 i;
+
+                    sMaskTouchDragActive = false;
+                    gTouchDragInProgress = 0;
+
+                    for (i = 0; i < 3; i++) {
+                        s32 dx = sMaskTouchLastX - kCButtonTouchX[i];
+                        s32 dy = sMaskTouchLastY - kCButtonTouchY[i];
+                        s32 distToBtnSq = (dx * dx) + (dy * dy);
+
+                        if (distToBtnSq <= kCButtonRadiusSq) {
+                            u8 targetCBtn = (u8)i;
+
+                            if (KaleidoScope_CanEquipMaskToCButton(play, targetCBtn, sMaskTouchDragSlot)) {
+                                pauseCtx->equipTargetCBtn = targetCBtn;
+
+                                if (GameInteractor_Should(VB_KALEIDO_EQUIP_ITEM_TO_BUTTON, true,
+                                                           sMaskTouchDragSlot + ITEM_NUM_SLOTS, sMaskTouchDragItem)) {
+                                    KaleidoScope_TriggerMaskEquip(play, sMaskTouchDragSlot, sMaskTouchDragItem);
+                                    didEquip = true;
+                                }
+                            }
+                            break;
+                        }
+                    }
+
+                    if (!didEquip) {
+                        pauseCtx->mainState = PAUSE_MAIN_STATE_IDLE;
+                    }
+                }
+            }
+        }
+    }
+#endif
 
     if ((pauseCtx->state == PAUSE_STATE_MAIN) && (pauseCtx->mainState == PAUSE_MAIN_STATE_IDLE) &&
         (pauseCtx->pageIndex == PAUSE_MASK) && !pauseCtx->itemDescriptionOn) {
@@ -562,121 +795,48 @@ void KaleidoScope_UpdateMaskCursor(PlayState* play) {
                 if ((pauseCtx->debugEditor == DEBUG_EDITOR_NONE) && !pauseCtx->itemDescriptionOn &&
                     (pauseCtx->state == PAUSE_STATE_MAIN) && (pauseCtx->mainState == PAUSE_MAIN_STATE_IDLE) &&
                     CHECK_BTN_ANY(input->press.button, BTN_CLEFT | BTN_CDOWN | BTN_CRIGHT | BTN_DPAD_EQUIP)) {
+                    // Determine which C-button (or D-pad slot) is being targeted
+                    u8 targetCBtn;
 
-                    // Ensure that a mask is not unequipped while being used
                     if (CHECK_BTN_ALL(input->press.button, BTN_CLEFT)) {
-                        if (((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
-                             (Player_GetCurMaskItemId(play) == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_LEFT))) ||
-                            ((sMaskPlayerFormItems[GET_PLAYER_FORM] != ITEM_NONE) &&
-                             (sMaskPlayerFormItems[GET_PLAYER_FORM] == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_LEFT)))) {
-                            Audio_PlaySfx(NA_SE_SY_ERROR);
-                            return;
-                        }
+                        targetCBtn = PAUSE_EQUIP_C_LEFT;
                     } else if (CHECK_BTN_ALL(input->press.button, BTN_CDOWN)) {
-                        if (((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
-                             (Player_GetCurMaskItemId(play) == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_DOWN))) ||
-                            ((sMaskPlayerFormItems[GET_PLAYER_FORM] != ITEM_NONE) &&
-                             (sMaskPlayerFormItems[GET_PLAYER_FORM] == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_DOWN)))) {
-                            Audio_PlaySfx(NA_SE_SY_ERROR);
-                            return;
-                        }
+                        targetCBtn = PAUSE_EQUIP_C_DOWN;
                     } else if (CHECK_BTN_ALL(input->press.button, BTN_CRIGHT)) {
-                        if (((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
-                             (Player_GetCurMaskItemId(play) == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_RIGHT))) ||
-                            ((sMaskPlayerFormItems[GET_PLAYER_FORM] != ITEM_NONE) &&
-                             (sMaskPlayerFormItems[GET_PLAYER_FORM] == BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_C_RIGHT)))) {
-                            Audio_PlaySfx(NA_SE_SY_ERROR);
-                            return;
-                        }
+                        targetCBtn = PAUSE_EQUIP_C_RIGHT;
                     }
                     // #region 2S2H [Dpad]
                     else if (CVarGetInteger("gEnhancements.Dpad.DpadEquips", 0)) {
                         if (CHECK_BTN_ALL(input->press.button, BTN_DRIGHT)) {
-                            if (((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
-                                 (Player_GetCurMaskItemId(play) == DPAD_BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_D_RIGHT))) ||
-                                ((sMaskPlayerFormItems[GET_PLAYER_FORM] != ITEM_NONE) &&
-                                 (sMaskPlayerFormItems[GET_PLAYER_FORM] ==
-                                  DPAD_BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_D_RIGHT)))) {
-                                Audio_PlaySfx(NA_SE_SY_ERROR);
-                                return;
-                            }
+                            targetCBtn = PAUSE_EQUIP_D_RIGHT;
                         } else if (CHECK_BTN_ALL(input->press.button, BTN_DLEFT)) {
-                            if (((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
-                                 (Player_GetCurMaskItemId(play) == DPAD_BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_D_LEFT))) ||
-                                ((sMaskPlayerFormItems[GET_PLAYER_FORM] != ITEM_NONE) &&
-                                 (sMaskPlayerFormItems[GET_PLAYER_FORM] ==
-                                  DPAD_BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_D_LEFT)))) {
-                                Audio_PlaySfx(NA_SE_SY_ERROR);
-                                return;
-                            }
+                            targetCBtn = PAUSE_EQUIP_D_LEFT;
                         } else if (CHECK_BTN_ALL(input->press.button, BTN_DDOWN)) {
-                            if (((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
-                                 (Player_GetCurMaskItemId(play) == DPAD_BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_D_DOWN))) ||
-                                ((sMaskPlayerFormItems[GET_PLAYER_FORM] != ITEM_NONE) &&
-                                 (sMaskPlayerFormItems[GET_PLAYER_FORM] ==
-                                  DPAD_BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_D_DOWN)))) {
-                                Audio_PlaySfx(NA_SE_SY_ERROR);
-                                return;
-                            }
+                            targetCBtn = PAUSE_EQUIP_D_DOWN;
                         } else if (CHECK_BTN_ALL(input->press.button, BTN_DUP)) {
-                            if (((Player_GetCurMaskItemId(play) != ITEM_NONE) &&
-                                 (Player_GetCurMaskItemId(play) == DPAD_BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_D_UP))) ||
-                                ((sMaskPlayerFormItems[GET_PLAYER_FORM] != ITEM_NONE) &&
-                                 (sMaskPlayerFormItems[GET_PLAYER_FORM] ==
-                                  DPAD_BUTTON_ITEM_EQUIP(0, EQUIP_SLOT_D_UP)))) {
-                                Audio_PlaySfx(NA_SE_SY_ERROR);
-                                return;
-                            }
+                            targetCBtn = PAUSE_EQUIP_D_UP;
+                        } else {
+                            return;
                         }
                     }
                     // #endregion
-
-                    if ((Player_GetEnvironmentalHazard(play) >= PLAYER_ENV_HAZARD_UNDERWATER_FLOOR) &&
-                        (Player_GetEnvironmentalHazard(play) <= PLAYER_ENV_HAZARD_UNDERWATER_FREE) &&
-                        ((cursorSlot == (SLOT_MASK_DEKU - ITEM_NUM_SLOTS)) ||
-                         (cursorSlot == (SLOT_MASK_GORON - ITEM_NUM_SLOTS)))) {
-                        Audio_PlaySfx(NA_SE_SY_ERROR);
+                    else {
                         return;
                     }
 
-                    if (CHECK_BTN_ALL(input->press.button, BTN_CLEFT)) {
-                        pauseCtx->equipTargetCBtn = PAUSE_EQUIP_C_LEFT;
-                    } else if (CHECK_BTN_ALL(input->press.button, BTN_CDOWN)) {
-                        pauseCtx->equipTargetCBtn = PAUSE_EQUIP_C_DOWN;
-                    } else if (CHECK_BTN_ALL(input->press.button, BTN_CRIGHT)) {
-                        pauseCtx->equipTargetCBtn = PAUSE_EQUIP_C_RIGHT;
+                    if (!KaleidoScope_CanEquipMaskToCButton(play, targetCBtn, cursorSlot)) {
+                        return;
                     }
-                    // #region 2S2H [Dpad]
-                    else if (CVarGetInteger("gEnhancements.Dpad.DpadEquips", 0)) {
-                        if (CHECK_BTN_ALL(input->press.button, BTN_DRIGHT)) {
-                            pauseCtx->equipTargetCBtn = PAUSE_EQUIP_D_RIGHT;
-                        } else if (CHECK_BTN_ALL(input->press.button, BTN_DLEFT)) {
-                            pauseCtx->equipTargetCBtn = PAUSE_EQUIP_D_LEFT;
-                        } else if (CHECK_BTN_ALL(input->press.button, BTN_DDOWN)) {
-                            pauseCtx->equipTargetCBtn = PAUSE_EQUIP_D_DOWN;
-                        } else if (CHECK_BTN_ALL(input->press.button, BTN_DUP)) {
-                            pauseCtx->equipTargetCBtn = PAUSE_EQUIP_D_UP;
-                        }
-                    }
-                    // #endregion
+
+                    pauseCtx->equipTargetCBtn = targetCBtn;
 
                     if (!GameInteractor_Should(VB_KALEIDO_EQUIP_ITEM_TO_BUTTON, true, cursorSlot + ITEM_NUM_SLOTS,
                                                cursorItem)) {
                         return;
                     }
 
-                    // Equip item to the C buttons
-                    pauseCtx->equipTargetItem = cursorItem;
-                    pauseCtx->equipTargetSlot = cursorSlot + ITEM_NUM_SLOTS;
-                    pauseCtx->mainState = PAUSE_MAIN_STATE_EQUIP_MASK;
-                    vtxIndex = cursorSlot * 4;
-                    pauseCtx->equipAnimX = pauseCtx->maskVtx[vtxIndex].v.ob[0] * 10;
-                    pauseCtx->equipAnimY = pauseCtx->maskVtx[vtxIndex].v.ob[1] * 10;
-                    pauseCtx->equipAnimAlpha = 255;
-                    sMaskEquipMagicArrowSlotHoldTimer = 0;
-                    sMaskEquipState = EQUIP_STATE_MOVE_TO_C_BTN;
-                    sMaskEquipAnimTimer = 10;
-                    Audio_PlaySfx(NA_SE_SY_DECIDE);
+                    KaleidoScope_TriggerMaskEquip(play, cursorSlot, cursorItem);
+
                 } else if ((pauseCtx->debugEditor == DEBUG_EDITOR_NONE) && (pauseCtx->state == PAUSE_STATE_MAIN) &&
                            (pauseCtx->mainState == PAUSE_MAIN_STATE_IDLE) &&
                            CHECK_BTN_ALL(input->press.button, BTN_A) && (msgCtx->msgLength == 0)) {
@@ -1020,6 +1180,10 @@ void KaleidoScope_UpdateMaskEquip(PlayState* play) {
     Vtx* bowItemVtx;
     u16 offsetX;
     u16 offsetY;
+
+    if (gTouchDragInProgress) {
+        return;
+    }
 
     // Grow glowing orb when equipping magic arrows
     if (sMaskEquipState == EQUIP_STATE_MAGIC_ARROW_GROW_ORB) {
