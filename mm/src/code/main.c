@@ -37,6 +37,10 @@ AudioMgr sAudioMgr;
 static s32 sBssPad;
 PadMgr gPadMgr;
 
+#ifdef __SWITCH__
+#include <switch.h>
+#endif
+
 #include "main.h"
 #include "buffers.h"
 #include "global.h"
@@ -58,6 +62,11 @@ int SDL_main(int argc, char* argv[] /* void* arg*/) {
     intptr_t sysHeap;
     s32 exit;
     s16* msg;
+
+#ifdef __SWITCH__
+    socketInitializeDefault();
+    nxlinkStdio();
+#endif
 
 // Attach console for windows so we can conditionally display it when running the extractor
 #ifdef _WIN32
