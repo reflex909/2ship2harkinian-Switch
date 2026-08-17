@@ -173,6 +173,7 @@ OTRGlobals::OTRGlobals() {
     context->InitConfiguration();
     context->InitConsoleVariables();
 
+
     auto controlDeck = std::make_shared<LUS::ControlDeck>(std::vector<CONTROLLERBUTTONS_T>({
         BTN_CUSTOM_MODIFIER1,
         BTN_CUSTOM_MODIFIER2,
@@ -630,6 +631,11 @@ void OTRGlobals::Initialize() {
 #endif
     context->InitConfiguration();
     context->InitConsoleVariables();
+#ifdef __SWITCH__
+    // Switch has no mouse, so controller-based menu navigation must be on by default
+    // or players can never reach the settings menu to enable it themselves.
+    CVarSetInteger(CVAR_IMGUI_CONTROLLER_NAV, 1);
+#endif
     auto logLevel = static_cast<spdlog::level::level_enum>(CVarGetInteger("gDeveloperTools.LogLevel", defaultLogLevel));
     context->InitLogging(logLevel, logLevel);
     Ship::Context::GetRawInstance()->GetLogger()->set_pattern("[%H:%M:%S.%e] [%s:%#] [%^%l%$] %v");
