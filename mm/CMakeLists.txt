@@ -577,11 +577,26 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
     find_package(SDL2)
     set(THREADS_PREFER_PTHREAD_FLAG ON)
     find_package(Threads REQUIRED)
+    find_package(Opus REQUIRED)
+    link_libraries(Opus::opus)
+    find_package(OpusFile REQUIRED)
+    link_libraries(OpusFile::opusfile REQUIRED)
+    find_package(Vorbis REQUIRED)
+    link_libraries(Vorbis::vorbisfile)
+    find_package(Ogg REQUIRED)
+    link_libraries(Ogg::ogg)
     set(ADDITIONAL_LIBRARY_DEPENDENCIES
         "libultraship;"
         SDL2::SDL2
         -lglad
         Threads::Threads
+        Opus::opus
+        OpusFile::opusfile
+        Vorbis::vorbisfile
+        Ogg::ogg
+    )
+    target_include_directories(${PROJECT_NAME} PRIVATE
+        ${DEVKITPRO}/portlibs/switch/include/opus
     )
 elseif(CMAKE_SYSTEM_NAME STREQUAL "CafeOS")
     find_package(SDL2 REQUIRED)
