@@ -163,6 +163,9 @@ OTRGlobals::OTRGlobals() {
 
     portArchivePath = Ship::Context::LocateFileAcrossAppDirs("2ship.o2r");
     ArchiveVersion portArchiveVersion = DetectArchiveVersion("2ship.o2r", true);
+    SPDLOG_INFO("DEBUG: 2ship.o2r path={} major={} minor={} patch={} | build major={} minor={} patch={}",
+                portArchivePath, portArchiveVersion.major, portArchiveVersion.minor, portArchiveVersion.patch,
+                gBuildVersionMajor, gBuildVersionMinor, gBuildVersionPatch);
     shipArchiveVersionMatch = portArchiveVersion.major == gBuildVersionMajor &&
                               portArchiveVersion.minor == gBuildVersionMinor &&
                               portArchiveVersion.patch == gBuildVersionPatch;
@@ -281,7 +284,10 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
     auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(OTRGlobals::Instance->context->GetWindow());
     auto gui = wnd->GetGui();
 
-    bool shouldRegen = VerifyArchiveVersion(DetectArchiveVersion("mm.o2r", true));
+ArchiveVersion mmArchiveVersion = DetectArchiveVersion("mm.o2r", true);
+    SPDLOG_INFO("DEBUG: mm.o2r major={} minor={} patch={} | build major={}",
+                mmArchiveVersion.major, mmArchiveVersion.minor, mmArchiveVersion.patch, gBuildVersionMajor);
+    bool shouldRegen = VerifyArchiveVersion(mmArchiveVersion);
 
     std::filesystem::path ownPath;
     std::vector<std::string> args;
@@ -300,19 +306,6 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
     std::string dataPath = Ship::Context::GetAppDirectoryPath(appShortName);
     std::string file;
 
-#if defined(__SWITCH__)
-    BenGui::RegisterPopup("Outdated ROM Archives",
-                          "\x1b[2;2HYou've launched 2Ship with an old ROM O2R file."
-                          "\x1b[4;2HPlease regenerate a new ROM O2R and relaunch."
-                          "\x1b[6;2HPress the Home button to exit...",
-                          "OK", "", [&]() { exit(1); });
-#elif defined(__WIIU__)
-    BenGui::RegisterPopup("Outdated ROM Archives",
-                          "You've launched 2Ship with an old a ROM O2R file.\n\n"
-                          "Please generate a ROM O2R and relaunch.\n\n"
-                          "Press and hold the Power button to shutdown...",
-                          "OK", "", [&]() { exit(1); });
-    OSFatal();
 #endif
 
     if (!std::filesystem::exists(installPath + "/assets")) {
