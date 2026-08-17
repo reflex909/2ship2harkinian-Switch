@@ -961,9 +961,15 @@ ArchiveVersion DetectArchiveVersion(std::string fileName, bool isO2rType) {
     return ReadPortVersionFromArchive(archivePath, isO2rType);
 }
 
+#if not defined(__SWITCH__) && not defined(__WIIU__)
 extern "C" void Messagebox_ShowErrorBox(char* title, char* body) {
     Extractor::ShowErrorBox(title, body);
 }
+#else
+extern "C" void Messagebox_ShowErrorBox(char* title, char* body) {
+    // No-op on Switch/WiiU: SDL_ShowSimpleMessageBox is not reliably supported on these platforms
+}
+#endif
 
 bool VerifyArchiveVersion(ArchiveVersion version) {
     return version.major != INT16_MAX && version.major != gBuildVersionMajor;
