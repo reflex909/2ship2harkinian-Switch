@@ -391,6 +391,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
             -Wno-missing-braces
             $<$<COMPILE_LANGUAGE:C>:
                 -Werror-implicit-function-declaration
+                -Wno-int-conversion
                 -Wno-incompatible-pointer-types
             >
             $<$<COMPILE_LANGUAGE:CXX>:-fpermissive>
