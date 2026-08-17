@@ -306,7 +306,6 @@ ArchiveVersion mmArchiveVersion = DetectArchiveVersion("mm.o2r", true);
     std::string dataPath = Ship::Context::GetAppDirectoryPath(appShortName);
     std::string file;
 
-#endif
 
     if (!std::filesystem::exists(installPath + "/assets")) {
         BenGui::RegisterPopup("Extractor assets not found",
