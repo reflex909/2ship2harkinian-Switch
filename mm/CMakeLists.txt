@@ -580,7 +580,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
     find_package(Opus REQUIRED)
     link_libraries(Opus::opus)
     find_package(OpusFile REQUIRED)
-    link_libraries(OpusFile::opusfile REQUIRED)
+    link_libraries(Opusfile::Opusfile REQUIRED)
     find_package(Vorbis REQUIRED)
     link_libraries(Vorbis::vorbisfile)
     find_package(Ogg REQUIRED)
@@ -591,7 +591,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
         -lglad
         Threads::Threads
         Opus::opus
-        OpusFile::opusfile
+        Opusfile::Opusfile
         Vorbis::vorbisfile
         Ogg::ogg
     )
