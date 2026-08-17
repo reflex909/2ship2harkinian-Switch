@@ -40,9 +40,7 @@
 #else
 #include <SDL2/SDL_scancode.h>
 #endif
-<<<<<<< HEAD
 #include "Extractor/Extract.h"
-=======
 
 #ifdef __SWITCH__
 #include <ship/port/switch/SwitchImpl.h>
@@ -55,7 +53,6 @@ extern "C" void SwitchTouchDebugLog(const char* src) {
 
 #if not defined (__SWITCH__) && not defined(__WIIU__)
 #endif
->>>>>>> 57bcc3f96 (Link PNG::PNG in mm target to fix undefined libpng references in ColorPictograph.cpp)
 // OTRTODO
 // #include <functions.h>
 #include "2s2h/Enhancements/FrameInterpolation/FrameInterpolation.h"
