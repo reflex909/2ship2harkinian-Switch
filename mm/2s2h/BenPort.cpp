@@ -306,13 +306,17 @@ ArchiveVersion mmArchiveVersion = DetectArchiveVersion("mm.o2r", true);
     std::string dataPath = Ship::Context::GetAppDirectoryPath(appShortName);
     std::string file;
 
-
+#if !defined(__SWITCH__) && !defined(__WIIU__)
     if (!std::filesystem::exists(installPath + "/assets")) {
         BenGui::RegisterPopup("Extractor assets not found",
                               "No O2R files found. Missing 'assets/' folder needed to generate OTR file.\nPlease "
                               "re-extract them from the download or.\n\nExiting...",
                               "OK", "", [&]() { exit(1); });
     } else if (shouldRegen) {
+   #else
+    if (shouldRegen) {
+#endif
+
         BenGui::RegisterPopup("Outdated ROM Archives",
                               "Your mm.o2r was created with incompatible versions of 2Ship.\nYou will "
                               "now be redirected to re-extract them.");
