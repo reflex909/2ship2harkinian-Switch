@@ -5,6 +5,9 @@
 #if defined(__unix__) || defined(__APPLE__)
 #include <sys/mman.h>
 #endif
+#ifndef __APPLE__
+#include <malloc.h>
+#endif
 
 u8* gAudioHeap;
 u8* gSystemHeap;
