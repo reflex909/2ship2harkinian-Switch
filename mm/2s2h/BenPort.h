@@ -185,6 +185,7 @@ extern "C" {
 #endif
 uint64_t GetUnixTimestamp();
 void CrashHandler_PrintExt(char* buffer, size_t* pos);
+void SwitchTouchDebugLog(const char* src);
 #ifdef __cplusplus
 };
 #endif
