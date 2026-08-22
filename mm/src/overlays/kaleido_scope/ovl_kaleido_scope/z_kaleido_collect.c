@@ -712,7 +712,7 @@ void KaleidoScope_UpdateQuestCursor(PlayState* play) {
 
         HidTouchScreenState touchState = {0};
 
-        if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
+        if (0 && hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) { // touchscreen disabled for Quest Status
             if (!sQuestWasTouching) {
                 sQuestWasTouching = true;
 
