@@ -5,6 +5,9 @@
 #include <ship/controller/controldeck/ControlDeck.h>
 #include <ship/utils/StringHelper.h>
 #include "2s2h/BenPort.h"
+#ifdef __SWITCH__
+#include "ship/port/switch/SwitchController.h"
+#endif
 #include "2s2h/BenGui/UIWidgets.hpp"
 #include "2s2h/BenGui/BenGui.hpp"
 #ifndef __WIIU__
@@ -1141,6 +1144,34 @@ void BenInputEditorWindow::DrawGyroSection(uint8_t port) {
         ImGui::SetNextItemOpen(true, ImGuiCond_Once);
         ImGui::BulletText("%s", mapping->GetPhysicalDeviceName().c_str());
         DrawRemoveGyroMappingButton(port, id);
+
+#ifdef __SWITCH__
+        if (Ship::SwitchController::GetInstance().IsDetachableJoyConPair(port)) {
+            using Ship::GyroSource;
+            GyroSource current = Ship::SwitchController::GetInstance().GetGyroSourceForPort(port);
+            ImGui::Text("Joy-Con Gyro Source:");
+            ImGui::SameLine();
+            struct { const char* label; GyroSource value; } options[] = {
+                { "Left", GyroSource::Left },
+                { "Right", GyroSource::Right },
+                { "Both", GyroSource::Both },
+            };
+            for (auto& opt : options) {
+                bool active = (current == opt.value);
+                if (active) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                }
+                if (ImGui::Button(StringHelper::Sprintf("%s###gyroSource%s%s", opt.label, id.c_str(), opt.label).c_str())) {
+                    Ship::SwitchController::GetInstance().SetGyroSource(port, opt.value);
+                }
+                if (active) {
+                    ImGui::PopStyleColor();
+                }
+                ImGui::SameLine();
+            }
+            ImGui::NewLine();
+        }
+#endif
 
         static float sPitch, sYaw = 0.0f;
         mapping->UpdatePad(sPitch, sYaw);
